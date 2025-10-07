@@ -93,14 +93,12 @@ st.markdown("""
         padding: 1rem;
     }
     
-    /* Delete button styling */
-    .delete-button {
-        background-color: #ff1744;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 4px;
-        cursor: pointer;
+    /* Red header styling for dataframe */
+    .dataframe-header-red th {
+        background-color: #ff1744 !important;
+        color: white !important;
+        font-weight: 600 !important;
+        text-transform: capitalize !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -250,7 +248,7 @@ def calculate_metrics(df):
     return metrics
 
 def get_equity_curve(df):
-    """Generate equity curve from trades"""
+    """Generate equity curve from trades starting at 0"""
     if df.empty:
         return pd.DataFrame()
     
@@ -275,6 +273,10 @@ def get_equity_curve(df):
     trades_with_pnl['cumulative_pnl'] = trades_with_pnl['pnl'].cumsum()
     
     return trades_with_pnl
+
+def capitalize_headers(text):
+    """Capitalize first letter of each word"""
+    return ' '.join(word.capitalize() for word in str(text).split('_'))
 
 # --- Sidebar Navigation ---
 st.sidebar.title("🚀 Trading Journal Pro")
@@ -363,21 +365,35 @@ if page == "📊 Dashboard":
         if not equity_df.empty:
             st.markdown("### 📈 Equity Curve")
             
-            # Equity Curve Line Chart
+            # Equity Curve Line Chart with markers - Excel style
             fig = go.Figure()
             
-            # Add cumulative P&L line
+            # Prepare data starting from 0
+            trade_numbers = [0] + list(range(1, len(equity_df) + 1))
+            cumulative_values = [0] + equity_df['cumulative_pnl'].tolist()
+            
+            # Determine color based on final value
+            line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
+            fill_color = 'rgba(0, 200, 83, 0.1)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.1)'
+            
+            # Add line with markers
             fig.add_trace(go.Scatter(
-                x=list(range(1, len(equity_df) + 1)),
-                y=equity_df['cumulative_pnl'],
-                mode='lines',
+                x=trade_numbers,
+                y=cumulative_values,
+                mode='lines+markers',
                 name='Equity Curve',
                 line=dict(
-                    color='#00c853' if equity_df['cumulative_pnl'].iloc[-1] > 0 else '#ff1744',
-                    width=3
+                    color=line_color,
+                    width=2
+                ),
+                marker=dict(
+                    size=6,
+                    color=line_color,
+                    symbol='circle',
+                    line=dict(color='white', width=1)
                 ),
                 fill='tozeroy',
-                fillcolor='rgba(0, 200, 83, 0.1)' if equity_df['cumulative_pnl'].iloc[-1] > 0 else 'rgba(255, 23, 68, 0.1)'
+                fillcolor=fill_color
             ))
             
             # Add zero line
@@ -386,10 +402,10 @@ if page == "📊 Dashboard":
             fig.update_layout(
                 xaxis_title="Trade Number",
                 yaxis_title="Cumulative P&L ($)",
-                height=450,
+                height=500,
                 hovermode='x unified',
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
                 font=dict(size=12),
                 showlegend=True,
                 legend=dict(
@@ -398,11 +414,21 @@ if page == "📊 Dashboard":
                     y=1.02,
                     xanchor="right",
                     x=1
+                ),
+                xaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(128,128,128,0.2)',
+                    zeroline=True,
+                    dtick=1  # Fixed tick interval
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(128,128,128,0.2)',
+                    zeroline=True
                 )
             )
-            
-            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
             
             st.plotly_chart(fig, use_container_width=True)
             
@@ -417,38 +443,46 @@ if page == "📊 Dashboard":
                 
                 fig = go.Figure()
                 
+                trade_nums = list(range(1, len(equity_df) + 1))
+                
                 # Winning trades
-                winning_trades = equity_df[equity_df['pnl'] > 0]
-                if not winning_trades.empty:
-                    fig.add_trace(go.Bar(
-                        x=list(range(1, len(equity_df) + 1)),
-                        y=[pnl if pnl > 0 else 0 for pnl in equity_df['pnl']],
-                        name='Wins',
-                        marker_color='#00c853'
-                    ))
+                fig.add_trace(go.Bar(
+                    x=trade_nums,
+                    y=[pnl if pnl > 0 else 0 for pnl in equity_df['pnl']],
+                    name='Wins',
+                    marker_color='#00c853',
+                    width=0.8
+                ))
                 
                 # Losing trades
-                losing_trades = equity_df[equity_df['pnl'] < 0]
-                if not losing_trades.empty:
-                    fig.add_trace(go.Bar(
-                        x=list(range(1, len(equity_df) + 1)),
-                        y=[pnl if pnl < 0 else 0 for pnl in equity_df['pnl']],
-                        name='Losses',
-                        marker_color='#ff1744'
-                    ))
+                fig.add_trace(go.Bar(
+                    x=trade_nums,
+                    y=[pnl if pnl < 0 else 0 for pnl in equity_df['pnl']],
+                    name='Losses',
+                    marker_color='#ff1744',
+                    width=0.8
+                ))
                 
                 fig.update_layout(
                     xaxis_title="Trade Number",
                     yaxis_title="P&L ($)",
-                    height=350,
+                    height=400,
                     barmode='relative',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    showlegend=True
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    showlegend=True,
+                    xaxis=dict(
+                        showgrid=True,
+                        gridwidth=1,
+                        gridcolor='rgba(128,128,128,0.2)',
+                        dtick=1
+                    ),
+                    yaxis=dict(
+                        showgrid=True,
+                        gridwidth=1,
+                        gridcolor='rgba(128,128,128,0.2)'
+                    )
                 )
-                
-                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                 
                 st.plotly_chart(fig, use_container_width=True)
             
@@ -474,10 +508,10 @@ if page == "📊 Dashboard":
                         )])
                         
                         fig.update_layout(
-                            height=350,
+                            height=400,
                             showlegend=True,
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
@@ -496,10 +530,10 @@ if page == "📊 Dashboard":
                         )])
                         
                         fig.update_layout(
-                            height=350,
+                            height=400,
                             showlegend=True,
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
@@ -541,10 +575,6 @@ if page == "📊 Dashboard":
             )
     else:
         st.info("📝 No trades recorded yet. Start by adding a new trade!")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image("https://via.placeholder.com/400x300?text=Start+Your+Trading+Journey", use_column_width=True)
 
 # --- New Trade Page ---
 elif page == "➕ New Trade":
@@ -779,7 +809,6 @@ elif page == "📈 Open Positions":
                         st.info(trade['notes'])
         else:
             st.info("📭 No open positions")
-            st.image("https://via.placeholder.com/400x200?text=No+Open+Positions", use_column_width=True)
     else:
         st.info("📝 No trades recorded yet")
 
@@ -853,35 +882,88 @@ elif page == "📉 Trade History":
         )
         
         if selected_cols:
-            # Format the dataframe
-            display_df = df[selected_cols].copy()
+            # Editable dataframe
+            edit_df = df[selected_cols + ['_id']].copy()
             
-            # Add row numbers
-            display_df.insert(0, '#', range(1, len(display_df) + 1))
-            
-            # Format numeric columns
-            for col in ['entry_price', 'exit_price', 'stop_loss', 'take_profit']:
-                if col in display_df.columns:
-                    display_df[col] = display_df[col].apply(
-                        lambda x: f"${x:.2f}" if pd.notna(x) and x != 0 else "-"
-                    )
-            
-            if 'pnl' in display_df.columns:
-                display_df['pnl'] = display_df['pnl'].apply(
-                    lambda x: f"${x:.2f}" if pd.notna(x) else "-"
+            # Rename columns with capitalized headers
+            column_config = {}
+            for col in selected_cols:
+                capitalized = capitalize_headers(col)
+                column_config[col] = st.column_config.Column(
+                    capitalized,
+                    width="medium",
                 )
             
-            # Display the table
-            st.dataframe(
-                display_df,
+            # Special configs for specific columns
+            if 'entry_date' in selected_cols:
+                column_config['entry_date'] = st.column_config.DatetimeColumn(
+                    "Entry Date",
+                    format="DD/MM/YYYY HH:mm"
+                )
+            
+            if 'pnl' in selected_cols:
+                column_config['pnl'] = st.column_config.NumberColumn(
+                    "P&L",
+                    format="$%.2f"
+                )
+            
+            if 'entry_price' in selected_cols:
+                column_config['entry_price'] = st.column_config.NumberColumn(
+                    "Entry Price",
+                    format="$%.2f"
+                )
+            
+            if 'exit_price' in selected_cols:
+                column_config['exit_price'] = st.column_config.NumberColumn(
+                    "Exit Price",
+                    format="$%.2f"
+                )
+            
+            # Hide _id column but keep it for editing
+            column_config['_id'] = None
+            
+            # Add red header styling with markdown
+            st.markdown("""
+            <style>
+                thead tr th {
+                    background-color: #ff1744 !important;
+                    color: white !important;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Editable data editor
+            edited_df = st.data_editor(
+                edit_df,
+                column_config=column_config,
                 use_container_width=True,
                 hide_index=True,
-                height=400
+                num_rows="dynamic",
+                height=450,
+                key="trade_editor"
             )
+            
+            # Save changes button
+            col1, col2, col3 = st.columns([2, 1, 2])
+            with col2:
+                if st.button("💾 Save Changes", type="primary", use_container_width=True):
+                    # Update MongoDB with edited data
+                    for idx, row in edited_df.iterrows():
+                        if '_id' in row:
+                            trade_id = row['_id']
+                            update_data = row.drop('_id').to_dict()
+                            # Remove None values
+                            update_data = {k: v for k, v in update_data.items() if pd.notna(v)}
+                            collection.update_one(
+                                {"_id": trade_id},
+                                {"$set": update_data}
+                            )
+                    st.success("✅ Changes saved successfully!")
+                    st.rerun()
             
             st.divider()
             
-            # Individual delete section - right below the table
+            # Individual delete section
             st.markdown("### 🗑️ Delete Individual Trade")
             
             col1, col2 = st.columns([3, 1])
@@ -912,7 +994,7 @@ elif page == "📉 Trade History":
             
             with col2:
                 st.markdown("<br>", unsafe_allow_html=True)  # Spacing
-                if st.button("🗑️ Delete Selected Trade", type="secondary", use_container_width=True):
+                if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
                     if selected_trade_idx is not None:
                         trade_id = df.iloc[selected_trade_idx]['_id']
                         collection.delete_one({"_id": trade_id})
@@ -937,8 +1019,8 @@ elif page == "📉 Trade History":
                 )
             
             with col2:
-                if st.button("🗑️ Delete All Filtered Trades", type="secondary", use_container_width=True):
-                    st.warning("⚠️ Click again to confirm deletion of all filtered trades")
+                if st.button("🗑️ Delete All Filtered", type="secondary", use_container_width=True):
+                    st.warning("⚠️ Click 'Confirm' to delete all filtered trades")
             
             with col3:
                 # Confirmation for bulk delete
@@ -949,7 +1031,6 @@ elif page == "📉 Trade History":
                     
     else:
         st.info("📭 No trades found with the selected filters")
-        st.image("https://via.placeholder.com/400x200?text=No+Trades+Found", use_column_width=True)
 
 # --- Analytics Page ---
 elif page == "📊 Analytics":
@@ -980,19 +1061,32 @@ elif page == "📊 Analytics":
                     if not equity_df.empty:
                         st.markdown("#### 📈 Equity Curve (Cumulative P&L)")
                         
+                        # Prepare data starting from 0
+                        trade_numbers = [0] + list(range(1, len(equity_df) + 1))
+                        cumulative_values = [0] + equity_df['cumulative_pnl'].tolist()
+                        
                         fig = go.Figure()
                         
+                        line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
+                        fill_color = 'rgba(0, 200, 83, 0.1)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.1)'
+                        
                         fig.add_trace(go.Scatter(
-                            x=list(range(1, len(equity_df) + 1)),
-                            y=equity_df['cumulative_pnl'],
-                            mode='lines',
+                            x=trade_numbers,
+                            y=cumulative_values,
+                            mode='lines+markers',
                             name='Cumulative P&L',
                             line=dict(
-                                color='#00c853' if equity_df['cumulative_pnl'].iloc[-1] > 0 else '#ff1744',
-                                width=3
+                                color=line_color,
+                                width=2
+                            ),
+                            marker=dict(
+                                size=6,
+                                color=line_color,
+                                symbol='circle',
+                                line=dict(color='white', width=1)
                             ),
                             fill='tozeroy',
-                            fillcolor='rgba(0, 200, 83, 0.1)' if equity_df['cumulative_pnl'].iloc[-1] > 0 else 'rgba(255, 23, 68, 0.1)'
+                            fillcolor=fill_color
                         ))
                         
                         fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
@@ -1000,14 +1094,22 @@ elif page == "📊 Analytics":
                         fig.update_layout(
                             xaxis_title="Trade Number",
                             yaxis_title="Cumulative P&L ($)",
-                            height=400,
+                            height=500,
                             hovermode='x unified',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)'
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            xaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='rgba(128,128,128,0.2)',
+                                dtick=1
+                            ),
+                            yaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='rgba(128,128,128,0.2)'
+                            )
                         )
-                        
-                        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                         
                         st.plotly_chart(fig, use_container_width=True)
                     
@@ -1029,20 +1131,28 @@ elif page == "📊 Analytics":
                             y=symbol_performance.index,
                             x=symbol_performance.values,
                             orientation='h',
-                            marker=dict(color=colors)
+                            marker=dict(color=colors),
+                            width=0.6
                         ))
                         
                         fig.update_layout(
                             xaxis_title="P&L ($)",
                             yaxis_title="Symbol",
                             height=400,
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            showlegend=False
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            showlegend=False,
+                            xaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='rgba(128,128,128,0.2)'
+                            ),
+                            yaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='rgba(128,128,128,0.2)'
+                            )
                         )
-                        
-                        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                         
                         st.plotly_chart(fig, use_container_width=True)
                     
@@ -1071,20 +1181,29 @@ elif page == "📊 Analytics":
                                 orientation='h',
                                 marker=dict(color='#2196f3'),
                                 text=win_rate_df['win_rate'].apply(lambda x: f'{x:.1f}%'),
-                                textposition='outside'
+                                textposition='outside',
+                                width=0.6
                             ))
                             
                             fig.update_layout(
                                 xaxis_title="Win Rate (%)",
                                 yaxis_title="Symbol",
                                 height=400,
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                showlegend=False
+                                plot_bgcolor='white',
+                                paper_bgcolor='white',
+                                showlegend=False,
+                                xaxis=dict(
+                                    showgrid=True,
+                                    gridwidth=1,
+                                    gridcolor='rgba(128,128,128,0.2)',
+                                    range=[0, 100]
+                                ),
+                                yaxis=dict(
+                                    showgrid=True,
+                                    gridwidth=1,
+                                    gridcolor='rgba(128,128,128,0.2)'
+                                )
                             )
-                            
-                            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)', range=[0, 100])
-                            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                             
                             st.plotly_chart(fig, use_container_width=True)
                 
@@ -1135,14 +1254,22 @@ elif page == "📊 Analytics":
                     fig.update_layout(
                         xaxis_title="Trade Number",
                         yaxis_title="Drawdown ($)",
-                        height=350,
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        showlegend=False
+                        height=400,
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        showlegend=False,
+                        xaxis=dict(
+                            showgrid=True,
+                            gridwidth=1,
+                            gridcolor='rgba(128,128,128,0.2)',
+                            dtick=1
+                        ),
+                        yaxis=dict(
+                            showgrid=True,
+                            gridwidth=1,
+                            gridcolor='rgba(128,128,128,0.2)'
+                        )
                     )
-                    
-                    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
@@ -1151,10 +1278,6 @@ elif page == "📊 Analytics":
                     # Outcome distribution
                     if 'outcome' in trades_with_pnl.columns:
                         st.markdown("#### 🎯 Outcomes Distribution")
-                        
-                        outcome_data = trades_with_pnl.groupby('outcome').agg({
-                            'pnl': ['sum', 'mean', 'count']
-                        }).round(2)
                         
                         col1, col2 = st.columns(2)
                         
@@ -1177,9 +1300,9 @@ elif page == "📊 Analytics":
                             
                             fig.update_layout(
                                 title="Trade Count by Outcome",
-                                height=350,
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)'
+                                height=400,
+                                plot_bgcolor='white',
+                                paper_bgcolor='white'
                             )
                             
                             st.plotly_chart(fig, use_container_width=True)
@@ -1194,21 +1317,29 @@ elif page == "📊 Analytics":
                             fig.add_trace(go.Bar(
                                 x=outcome_pnl.index,
                                 y=outcome_pnl.values,
-                                marker=dict(color=colors)
+                                marker=dict(color=colors),
+                                width=0.6
                             ))
                             
                             fig.update_layout(
                                 title="Total P&L by Outcome",
                                 xaxis_title="Outcome",
                                 yaxis_title="P&L ($)",
-                                height=350,
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                showlegend=False
+                                height=400,
+                                plot_bgcolor='white',
+                                paper_bgcolor='white',
+                                showlegend=False,
+                                xaxis=dict(
+                                    showgrid=True,
+                                    gridwidth=1,
+                                    gridcolor='rgba(128,128,128,0.2)'
+                                ),
+                                yaxis=dict(
+                                    showgrid=True,
+                                    gridwidth=1,
+                                    gridcolor='rgba(128,128,128,0.2)'
+                                )
                             )
-                            
-                            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                             
                             st.plotly_chart(fig, use_container_width=True)
                 
@@ -1216,91 +1347,93 @@ elif page == "📊 Analytics":
                     if 'strategy' in trades_with_pnl.columns:
                         st.markdown("### Strategy Analysis")
                         
-                        strategy_performance = trades_with_pnl.groupby('strategy').agg({
-                            'pnl': ['sum', 'mean', 'count']
-                        }).round(2)
+                        col1, col2 = st.columns(2)
                         
-                        if not strategy_performance.empty:
-                            col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("#### 📊 Trades by Strategy")
                             
-                            with col1:
-                                st.markdown("#### 📊 Trades by Strategy")
-                                
-                                strategy_counts = trades_with_pnl['strategy'].value_counts()
-                                
-                                fig = go.Figure(data=[go.Pie(
-                                    labels=strategy_counts.index,
-                                    values=strategy_counts.values,
-                                    hole=.4
-                                )])
-                                
-                                fig.update_layout(
-                                    height=350,
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    paper_bgcolor='rgba(0,0,0,0)'
+                            strategy_counts = trades_with_pnl['strategy'].value_counts()
+                            
+                            fig = go.Figure(data=[go.Pie(
+                                labels=strategy_counts.index,
+                                values=strategy_counts.values,
+                                hole=.4
+                            )])
+                            
+                            fig.update_layout(
+                                height=400,
+                                plot_bgcolor='white',
+                                paper_bgcolor='white'
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        with col2:
+                            st.markdown("#### 💰 P&L by Strategy")
+                            
+                            strategy_pnl = trades_with_pnl.groupby('strategy')['pnl'].sum().sort_values()
+                            
+                            fig = go.Figure()
+                            
+                            colors = ['#00c853' if x > 0 else '#ff1744' for x in strategy_pnl.values]
+                            
+                            fig.add_trace(go.Bar(
+                                y=strategy_pnl.index,
+                                x=strategy_pnl.values,
+                                orientation='h',
+                                marker=dict(color=colors),
+                                width=0.6
+                            ))
+                            
+                            fig.update_layout(
+                                xaxis_title="Total P&L ($)",
+                                yaxis_title="Strategy",
+                                height=400,
+                                plot_bgcolor='white',
+                                paper_bgcolor='white',
+                                showlegend=False,
+                                xaxis=dict(
+                                    showgrid=True,
+                                    gridwidth=1,
+                                    gridcolor='rgba(128,128,128,0.2)'
+                                ),
+                                yaxis=dict(
+                                    showgrid=True,
+                                    gridwidth=1,
+                                    gridcolor='rgba(128,128,128,0.2)'
                                 )
-                                
-                                st.plotly_chart(fig, use_container_width=True)
+                            )
                             
-                            with col2:
-                                st.markdown("#### 💰 P&L by Strategy")
-                                
-                                strategy_pnl = trades_with_pnl.groupby('strategy')['pnl'].sum().sort_values()
-                                
-                                fig = go.Figure()
-                                
-                                colors = ['#00c853' if x > 0 else '#ff1744' for x in strategy_pnl.values]
-                                
-                                fig.add_trace(go.Bar(
-                                    y=strategy_pnl.index,
-                                    x=strategy_pnl.values,
-                                    orientation='h',
-                                    marker=dict(color=colors)
-                                ))
-                                
-                                fig.update_layout(
-                                    xaxis_title="Total P&L ($)",
-                                    yaxis_title="Strategy",
-                                    height=350,
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    showlegend=False
-                                )
-                                
-                                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                                
-                                st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        st.divider()
+                        
+                        # Strategy performance table
+                        st.markdown("#### 📋 Strategy Performance Table")
+                        
+                        strategy_stats = []
+                        for strategy in trades_with_pnl['strategy'].unique():
+                            strategy_trades = trades_with_pnl[trades_with_pnl['strategy'] == strategy]
+                            wins = len(strategy_trades[strategy_trades['pnl'] > 0])
+                            total = len(strategy_trades)
                             
-                            st.divider()
-                            
-                            # Strategy performance table
-                            st.markdown("#### 📋 Strategy Performance Table")
-                            
-                            strategy_stats = []
-                            for strategy in trades_with_pnl['strategy'].unique():
-                                strategy_trades = trades_with_pnl[trades_with_pnl['strategy'] == strategy]
-                                wins = len(strategy_trades[strategy_trades['pnl'] > 0])
-                                total = len(strategy_trades)
-                                
-                                strategy_stats.append({
-                                    'Strategy': strategy,
-                                    'Total Trades': total,
-                                    'Wins': wins,
-                                    'Losses': total - wins,
-                                    'Win Rate (%)': f"{(wins/total * 100):.1f}" if total > 0 else "0",
-                                    'Total P&L ($)': f"{strategy_trades['pnl'].sum():.2f}",
-                                    'Avg P&L ($)': f"{strategy_trades['pnl'].mean():.2f}"
-                                })
-                            
-                            strategy_df = pd.DataFrame(strategy_stats)
-                            st.dataframe(strategy_df, use_container_width=True, hide_index=True)
+                            strategy_stats.append({
+                                'Strategy': strategy,
+                                'Total Trades': total,
+                                'Wins': wins,
+                                'Losses': total - wins,
+                                'Win Rate (%)': f"{(wins/total * 100):.1f}" if total > 0 else "0",
+                                'Total P&L ($)': f"{strategy_trades['pnl'].sum():.2f}",
+                                'Avg P&L ($)': f"{strategy_trades['pnl'].mean():.2f}"
+                            })
+                        
+                        strategy_df = pd.DataFrame(strategy_stats)
+                        st.dataframe(strategy_df, use_container_width=True, hide_index=True)
                     else:
                         st.info("📝 No strategy data available")
                 
                 with tab4:
                     st.markdown("### Behavioral Analysis")
-                    has_behavioral_data = False
                     
                     col1, col2 = st.columns(2)
                     
@@ -1311,8 +1444,6 @@ elif page == "📊 Analytics":
                             emotion_performance = trades_with_pnl.groupby('emotion')['pnl'].mean().sort_values()
                             
                             if not emotion_performance.empty:
-                                has_behavioral_data = True
-                                
                                 fig = go.Figure()
                                 
                                 colors = ['#00c853' if x > 0 else '#ff1744' for x in emotion_performance.values]
@@ -1321,20 +1452,28 @@ elif page == "📊 Analytics":
                                     y=emotion_performance.index,
                                     x=emotion_performance.values,
                                     orientation='h',
-                                    marker=dict(color=colors)
+                                    marker=dict(color=colors),
+                                    width=0.6
                                 ))
                                 
                                 fig.update_layout(
                                     xaxis_title="Average P&L ($)",
                                     yaxis_title="Emotional State",
-                                    height=350,
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    showlegend=False
+                                    height=400,
+                                    plot_bgcolor='white',
+                                    paper_bgcolor='white',
+                                    showlegend=False,
+                                    xaxis=dict(
+                                        showgrid=True,
+                                        gridwidth=1,
+                                        gridcolor='rgba(128,128,128,0.2)'
+                                    ),
+                                    yaxis=dict(
+                                        showgrid=True,
+                                        gridwidth=1,
+                                        gridcolor='rgba(128,128,128,0.2)'
+                                    )
                                 )
-                                
-                                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                                 
                                 st.plotly_chart(fig, use_container_width=True)
                     
@@ -1345,8 +1484,6 @@ elif page == "📊 Analytics":
                             confidence_data = trades_with_pnl[['confidence_level', 'pnl']].dropna()
                             
                             if not confidence_data.empty:
-                                has_behavioral_data = True
-                                
                                 fig = go.Figure()
                                 
                                 colors = ['#00c853' if x > 0 else '#ff1744' for x in confidence_data['pnl']]
@@ -1365,19 +1502,23 @@ elif page == "📊 Analytics":
                                 fig.update_layout(
                                     xaxis_title="Confidence Level",
                                     yaxis_title="P&L ($)",
-                                    height=350,
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    showlegend=False
+                                    height=400,
+                                    plot_bgcolor='white',
+                                    paper_bgcolor='white',
+                                    showlegend=False,
+                                    xaxis=dict(
+                                        showgrid=True,
+                                        gridwidth=1,
+                                        gridcolor='rgba(128,128,128,0.2)'
+                                    ),
+                                    yaxis=dict(
+                                        showgrid=True,
+                                        gridwidth=1,
+                                        gridcolor='rgba(128,128,128,0.2)'
+                                    )
                                 )
                                 
-                                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                                
                                 st.plotly_chart(fig, use_container_width=True)
-                    
-                    if not has_behavioral_data:
-                        st.info("📝 No behavioral data available. Add trades with emotion and confidence data to see analysis.")
                     
                     st.divider()
                     
@@ -1385,7 +1526,7 @@ elif page == "📊 Analytics":
                     if 'entry_date' in trades_with_pnl.columns:
                         st.markdown("#### 📅 Performance Over Time")
                         
-                        # Convert entry_date to datetime if it's not already
+                        # Convert entry_date to datetime
                         trades_with_pnl['entry_date'] = pd.to_datetime(trades_with_pnl['entry_date'])
                         
                         # Group by day
@@ -1398,20 +1539,28 @@ elif page == "📊 Analytics":
                         fig.add_trace(go.Bar(
                             x=daily_pnl.index,
                             y=daily_pnl.values,
-                            marker=dict(color=colors)
+                            marker=dict(color=colors),
+                            width=0.8
                         ))
                         
                         fig.update_layout(
                             xaxis_title="Date",
                             yaxis_title="Daily P&L ($)",
-                            height=350,
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            showlegend=False
+                            height=400,
+                            plot_bgcolor='white',
+                            paper_bgcolor='white',
+                            showlegend=False,
+                            xaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='rgba(128,128,128,0.2)'
+                            ),
+                            yaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='rgba(128,128,128,0.2)'
+                            )
                         )
-                        
-                        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
-                        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
                         
                         st.plotly_chart(fig, use_container_width=True)
             else:
@@ -1533,22 +1682,16 @@ elif page == "⚙️ Settings":
     with tab3:
         st.markdown("### About Trading Journal Pro")
         
-        col1, col2 = st.columns([1, 2])
+        st.markdown("""
+        ## Trading Journal Pro v2.0
         
-        with col1:
-            st.image("https://via.placeholder.com/200x200?text=TJP", use_column_width=True)
+        **🚀 A comprehensive trading journal application**
         
-        with col2:
-            st.markdown("""
-            ## Trading Journal Pro v2.0
-            
-            **🚀 A comprehensive trading journal application**
-            
-            Built with modern technologies to help traders track, analyze, and improve their trading performance.
-            
-            **Version:** 2.0.0  
-            **Last Updated:** 2024
-            """)
+        Built with modern technologies to help traders track, analyze, and improve their trading performance.
+        
+        **Version:** 2.0.0  
+        **Last Updated:** 2024
+        """)
         
         st.divider()
         
@@ -1560,7 +1703,7 @@ elif page == "⚙️ Settings":
             st.markdown("""
             - ✅ Track trades across multiple asset classes
             - 📊 Advanced analytics and performance metrics
-            - 📈 Equity curve visualization
+            - 📈 Equity curve visualization with markers
             - 🎯 Win/Loss/TSL/BE outcome tracking
             - 💰 Manual P&L entry
             - ⚠️ Risk management tools
@@ -1572,7 +1715,7 @@ elif page == "⚙️ Settings":
             - 🧠 Behavioral tracking
             - 📥 Data export and backup
             - 🗑️ Flexible delete options
-            - 📱 Responsive design
+            - ✏️ Editable trade history
             - 🔄 Backward compatibility
             """)
         
@@ -1593,11 +1736,6 @@ elif page == "⚙️ Settings":
         
         with col4:
             st.info("**Data**\n\nPandas")
-        
-        st.divider()
-        
-        st.markdown("### 📝 License")
-        st.markdown("MIT License © 2024")
         
         st.divider()
         
