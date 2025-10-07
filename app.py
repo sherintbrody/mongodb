@@ -951,6 +951,7 @@ elif page == "Open Positions":
     else:
         st.info("📝 No trades recorded yet")
 
+
 # --- Trade History Page ---
 elif page == "Trade History":
     st.title("📉 Trade History")
@@ -960,11 +961,25 @@ elif page == "Trade History":
     with st.expander("🔍 Filters", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            filter_symbol = st.text_input("Symbol", placeholder="All")
+            # Symbol dropdown with ALL_SYMBOLS
+            symbol_options = ["All"] + ALL_SYMBOLS
+            # Also add any symbols from database that might not be in ALL_SYMBOLS
+            try:
+                db_symbols = collection.distinct("symbol")
+                for sym in db_symbols:
+                    if sym and sym not in symbol_options:
+                        symbol_options.append(sym)
+            except:
+                pass
+            
+            filter_symbol = st.selectbox("Symbol", symbol_options)
+        
         with col2:
             filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
+        
         with col3:
             filter_side = st.selectbox("Side", ["All", "LONG", "SHORT"])
+        
         with col4:
             filter_outcome = st.selectbox("Outcome", ["All", "WIN", "LOSS", "BE", "TSL", "PENDING"])
         
@@ -980,24 +995,76 @@ elif page == "Trade History":
                 "Trade Type",
                 ["All", "FOREX", "INDICES", "COMMODITIES", "CRYPTO", "STOCK", "OPTIONS", "FUTURES"]
             )
+        with col3:
+            filter_timeframe = st.selectbox(
+                "Timeframe",
+                ["All", "1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W", "1M"]
+            )
+        with col4:
+            # Date range filter
+            date_filter = st.selectbox(
+                "Date Range",
+                ["All Time", "Today", "This Week", "This Month", "Last 30 Days", "Last 90 Days", "This Year"]
+            )
     
     # Build query
     query = {}
-    if filter_symbol:
-        query["symbol"] = {"$regex": filter_symbol.upper()}
+    
+    # Symbol filter
+    if filter_symbol != "All":
+        query["symbol"] = filter_symbol
+    
+    # Status filter
     if filter_status != "All":
         query["status"] = filter_status
+    
+    # Side filter
     if filter_side != "All":
         query["side"] = filter_side
+    
+    # Outcome filter
     if filter_outcome != "All":
         query["outcome"] = filter_outcome
+    
+    # Strategy filter
     if filter_strategy != "All":
         query["strategy"] = filter_strategy
+    
+    # Trade type filter
     if filter_trade_type != "All":
         query["trade_type"] = filter_trade_type
     
-    # Load fresh trades
-    docs = list(collection.find(query))
+    # Timeframe filter
+    if filter_timeframe != "All":
+        query["timeframe"] = filter_timeframe
+    
+    # Date range filter
+    if date_filter != "All Time":
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        
+        if date_filter == "Today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif date_filter == "This Week":
+            start_date = now - timedelta(days=now.weekday())
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif date_filter == "This Month":
+            start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        elif date_filter == "Last 30 Days":
+            start_date = now - timedelta(days=30)
+        elif date_filter == "Last 90 Days":
+            start_date = now - timedelta(days=90)
+        elif date_filter == "This Year":
+            start_date = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        query["entry_date"] = {"$gte": start_date.isoformat()}
+    
+    # Load filtered trades
+    try:
+        docs = list(collection.find(query))
+    except Exception as e:
+        st.error(f"Error loading trades: {str(e)}")
+        docs = []
     
     if docs:
         df = pd.DataFrame(docs)
@@ -1006,8 +1073,19 @@ elif page == "Trade History":
         # Create a copy for MongoDB IDs
         df_ids = df['_id'].tolist()
         
-        # Display summary
-        st.markdown(f"**Found {len(df)} trades**")
+        # Display summary with filter results
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            st.markdown(f"**Found {len(df)} trades matching filters**")
+        with col2:
+            if len(df) > 0 and 'pnl' in df.columns:
+                total_filtered_pnl = df['pnl'].sum()
+                color = "🟢" if total_filtered_pnl >= 0 else "🔴"
+                st.markdown(f"**{color} P&L: ${total_filtered_pnl:.2f}**")
+        with col3:
+            if len(df) > 0:
+                if st.button("🔄 Clear Filters", use_container_width=True):
+                    st.rerun()
         
         st.divider()
         
