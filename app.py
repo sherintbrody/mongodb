@@ -957,10 +957,10 @@ elif page == "Trade History":
     st.markdown("### Complete record of all your trades")
     
     # Filters
-    with st.expander("🔍 Filters", expanded=True):
+    with st.expander("🔍 Filters", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            filter_symbol = st.text_input("Symbol", placeholder="All")
+            filter_symbol = st.text_input("Symbol", placeholder="All","all_symbols")
         with col2:
             filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
         with col3:
