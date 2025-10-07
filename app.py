@@ -470,10 +470,10 @@ if page == "Dashboard":
             st.metric("❌ Losses", metrics['total_losses'])
         
         with col3:
-            st.metric("💚 Avg Win", f"${metrics['avg_win']:.2f}")
+            st.metric("▲ Avg Win", f"${metrics['avg_win']:.2f}")
         
         with col4:
-            st.metric("💔 Avg Loss", f"${metrics['avg_loss']:.2f}")
+            st.metric("▼ Avg Loss", f"${metrics['avg_loss']:.2f}")
         
         st.divider()
         
