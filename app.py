@@ -103,11 +103,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Connect to MongoDB ---
-@st.cache_resource
 def init_connection():
     return MongoClient(st.secrets["mongo"]["URI"])
 
-client = init_connection()
+# Initialize connection without caching to get fresh data
+if 'mongo_client' not in st.session_state:
+    st.session_state.mongo_client = init_connection()
+
+client = st.session_state.mongo_client
 db = client[st.secrets["mongo"]["DB"]]
 collection = db[st.secrets["mongo"]["COLLECTION"]]
 
@@ -145,6 +148,21 @@ def format_date_display(date_val):
         return dt.strftime('%d-%m-%Y')
     except:
         return "-"
+
+def parse_date_from_display(date_str):
+    """Parse DD-MM-YYYY to ISO format"""
+    if not date_str or date_str == "-" or date_str == "":
+        return None
+    try:
+        dt = datetime.strptime(str(date_str), '%d-%m-%Y')
+        return dt.isoformat()
+    except:
+        return None
+
+def load_fresh_data():
+    """Load fresh data from MongoDB without caching"""
+    docs = list(collection.find())
+    return docs
 
 def migrate_old_data(df):
     """Migrate old data format to new format"""
@@ -325,6 +343,12 @@ def get_chart_layout(title=""):
 # --- Sidebar Navigation ---
 st.sidebar.title("🚀 Trading Journal Pro")
 st.sidebar.markdown("---")
+
+# Add refresh button
+if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
+
 page = st.sidebar.radio(
     "📋 Navigation",
     ["📊 Dashboard", "➕ New Trade", "📈 Open Positions", "📉 Trade History", 
@@ -340,8 +364,9 @@ if page == "📊 Dashboard":
     st.title("📊 Trading Dashboard")
     st.markdown("### Overview of Your Trading Performance")
     
-    # Load all trades
-    docs = list(collection.find())
+    # Load fresh data from MongoDB
+    docs = load_fresh_data()
+    
     if docs:
         df = pd.DataFrame(docs)
         df = migrate_old_data(df)
@@ -709,26 +734,26 @@ elif page == "➕ New Trade":
                     "symbol": symbol.upper(),
                     "side": side,
                     "trade_type": trade_type,
-                    "quantity": quantity,
-                    "entry_price": entry_price,
-                    "exit_price": exit_price if exit_price > 0 else None,
+                    "quantity": float(quantity),
+                    "entry_price": float(entry_price),
+                    "exit_price": float(exit_price) if exit_price > 0 else None,
                     "entry_date": datetime.combine(entry_date, entry_time).isoformat(),
                     "exit_date": datetime.now().isoformat() if status == "CLOSED" else None,
                     "status": status,
                     "outcome": outcome,
-                    "pnl": pnl if pnl != 0 else None,
-                    "stop_loss": stop_loss if stop_loss > 0 else None,
-                    "take_profit": take_profit if take_profit > 0 else None,
-                    "risk_amount": risk_amount if risk_amount > 0 else None,
-                    "risk_reward_ratio": risk_reward_ratio if risk_reward_ratio > 0 else None,
+                    "pnl": float(pnl) if pnl != 0 else None,
+                    "stop_loss": float(stop_loss) if stop_loss > 0 else None,
+                    "take_profit": float(take_profit) if take_profit > 0 else None,
+                    "risk_amount": float(risk_amount) if risk_amount > 0 else None,
+                    "risk_reward_ratio": float(risk_reward_ratio) if risk_reward_ratio > 0 else None,
                     "strategy": strategy,
                     "timeframe": timeframe,
-                    "entry_fee": entry_fee,
-                    "exit_fee": exit_fee,
-                    "total_fees": entry_fee + exit_fee,
+                    "entry_fee": float(entry_fee),
+                    "exit_fee": float(exit_fee),
+                    "total_fees": float(entry_fee + exit_fee),
                     "notes": notes,
                     "tags": tags,
-                    "confidence_level": confidence_level,
+                    "confidence_level": int(confidence_level),
                     "emotion": emotion,
                     "created_at": datetime.now().isoformat()
                 }
@@ -736,6 +761,8 @@ elif page == "➕ New Trade":
                 collection.insert_one(trade_data)
                 st.success("✅ Trade saved successfully!")
                 st.balloons()
+                # Force refresh
+                st.rerun()
             else:
                 st.error("❌ Please fill in all required fields marked with *")
 
@@ -744,7 +771,9 @@ elif page == "📈 Open Positions":
     st.title("📈 Open Positions")
     st.markdown("### Active trades currently in the market")
     
-    docs = list(collection.find())
+    # Load fresh data
+    docs = load_fresh_data()
+    
     if docs:
         df = pd.DataFrame(docs)
         df = migrate_old_data(df)
@@ -815,20 +844,24 @@ elif page == "📈 Open Positions":
                             with col_a:
                                 if st.form_submit_button("✅ Close", type="primary", use_container_width=True):
                                     update_data = {
-                                        "exit_price": exit_price,
-                                        "exit_fee": exit_fee,
+                                        "exit_price": float(exit_price),
+                                        "exit_fee": float(exit_fee),
                                         "exit_date": datetime.now().isoformat(),
                                         "status": "CLOSED",
                                         "outcome": outcome,
-                                        "pnl": pnl_input
+                                        "pnl": float(pnl_input)
                                     }
                                     
-                                    collection.update_one(
+                                    result = collection.update_one(
                                         {"_id": trade['_id']},
                                         {"$set": update_data}
                                     )
-                                    st.success("✅ Position closed!")
-                                    st.rerun()
+                                    
+                                    if result.modified_count > 0:
+                                        st.success("✅ Position closed successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to update position")
                             
                             with col_b:
                                 if st.form_submit_button("🗑️ Delete", type="secondary", use_container_width=True):
@@ -890,49 +923,44 @@ elif page == "📉 Trade History":
     if filter_trade_type != "All":
         query["trade_type"] = filter_trade_type
     
-    # Load trades
+    # Load fresh trades
     docs = list(collection.find(query))
     
     if docs:
         df = pd.DataFrame(docs)
         df = migrate_old_data(df)
         
-        # Store original _id mapping
-        id_mapping = df['_id'].to_dict()
-        
         # Display summary
         st.markdown(f"**Found {len(df)} trades**")
         
         st.divider()
         
-        # Fixed display columns - removed select option
+        # Fixed display columns
         display_cols = ['entry_date', 'exit_date', 'symbol', 'side', 'outcome', 'quantity', 
                        'entry_price', 'exit_price', 'pnl', 'status', 'strategy', 'timeframe']
         
         # Filter to only include columns that exist
         display_cols = [col for col in display_cols if col in df.columns]
         
-        # Create editable dataframe with proper types
-        edit_df = df[display_cols].copy()
+        # Create editable dataframe
+        edit_df = df[display_cols + ['_id']].copy()
         
-        # Convert types for data_editor compatibility
-        for col in edit_df.columns:
+        # Format for display
+        for col in display_cols:
             if col in ['entry_date', 'exit_date']:
-                # Convert to DD-MM-YYYY format
                 edit_df[col] = edit_df[col].apply(format_date_display)
             elif edit_df[col].dtype == 'object':
-                # Ensure string columns are proper strings
-                edit_df[col] = edit_df[col].astype(str).replace('nan', '').replace('-', '')
+                edit_df[col] = edit_df[col].astype(str).replace('nan', '').replace('None', '')
             elif pd.api.types.is_numeric_dtype(edit_df[col]):
-                # Fill NaN in numeric columns with 0
                 edit_df[col] = edit_df[col].fillna(0)
         
-        # Add index as a display column
+        # Add row numbers
         edit_df.insert(0, 'Row', range(len(edit_df)))
         
-        # Column configuration with red headers
+        # Column configuration
         column_config = {
-            'Row': st.column_config.NumberColumn('Row', disabled=True, width="small")
+            'Row': st.column_config.NumberColumn('Row', disabled=True, width="small"),
+            '_id': None  # Hide _id
         }
         
         for col in display_cols:
@@ -975,46 +1003,56 @@ elif page == "📉 Trade History":
         with col2:
             if st.button("💾 Save Changes", type="primary", use_container_width=True):
                 try:
+                    success_count = 0
                     # Update MongoDB with edited data
                     for idx in range(len(edited_df)):
-                        # Get the original MongoDB _id
-                        original_idx = edited_df.iloc[idx]['Row']
-                        trade_id = id_mapping[original_idx]
+                        row_num = int(edited_df.iloc[idx]['Row'])
+                        trade_id = df.iloc[row_num]['_id']
                         
-                        # Get updated row data
-                        row = edited_df.iloc[idx].drop('Row')
+                        # Get edited values
+                        row_data = edited_df.iloc[idx].drop(['Row', '_id'])
                         update_data = {}
                         
-                        for col in row.index:
-                            value = row[col]
+                        for col in display_cols:
+                            value = row_data[col]
                             
-                            # Skip empty strings
-                            if value == '' or (isinstance(value, float) and pd.isna(value)):
+                            # Skip empty or null values
+                            if pd.isna(value) or value == '' or value == '-':
                                 continue
                             
-                            # Convert dates back to ISO format
+                            # Handle dates
                             if col in ['entry_date', 'exit_date']:
+                                iso_date = parse_date_from_display(value)
+                                if iso_date:
+                                    update_data[col] = iso_date
+                            # Handle numeric fields
+                            elif col in ['quantity', 'entry_price', 'exit_price', 'pnl', 'stop_loss', 
+                                       'take_profit', 'risk_amount', 'risk_reward_ratio']:
                                 try:
-                                    # Parse DD-MM-YYYY format
-                                    if value and value != '-':
-                                        dt = datetime.strptime(str(value), '%d-%m-%Y')
-                                        update_data[col] = dt.isoformat()
+                                    update_data[col] = float(value)
                                 except:
-                                    continue
+                                    pass
+                            # Handle text fields
                             else:
-                                update_data[col] = value
+                                update_data[col] = str(value)
                         
                         # Update in MongoDB
                         if update_data:
-                            collection.update_one(
+                            result = collection.update_one(
                                 {"_id": trade_id},
                                 {"$set": update_data}
                             )
+                            if result.modified_count > 0:
+                                success_count += 1
                     
-                    st.success("✅ Changes saved successfully!")
-                    st.rerun()
+                    if success_count > 0:
+                        st.success(f"✅ Successfully updated {success_count} trade(s)!")
+                        st.rerun()
+                    else:
+                        st.info("ℹ️ No changes detected")
+                        
                 except Exception as e:
-                    st.error(f"Error saving changes: {str(e)}")
+                    st.error(f"❌ Error saving changes: {str(e)}")
         
         st.divider()
         
@@ -1042,13 +1080,16 @@ elif page == "📉 Trade History":
             )
         
         with col2:
-            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+            st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
                 if selected_trade_idx is not None:
                     trade_id = df.iloc[selected_trade_idx]['_id']
-                    collection.delete_one({"_id": trade_id})
-                    st.success("✅ Trade deleted successfully!")
-                    st.rerun()
+                    result = collection.delete_one({"_id": trade_id})
+                    if result.deleted_count > 0:
+                        st.success("✅ Trade deleted successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to delete trade")
         
         st.divider()
         
@@ -1078,11 +1119,10 @@ elif page == "📉 Trade History":
                 st.session_state['confirm_bulk_delete'] = True
         
         with col3:
-            # Confirmation for bulk delete
             if st.session_state.get('confirm_bulk_delete', False):
                 if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
-                    collection.delete_many(query)
-                    st.success("✅ Filtered trades deleted!")
+                    result = collection.delete_many(query)
+                    st.success(f"✅ Deleted {result.deleted_count} trade(s)!")
                     st.session_state['confirm_bulk_delete'] = False
                     st.rerun()
                 
@@ -1094,7 +1134,9 @@ elif page == "📊 Analytics":
     st.title("📊 Trading Analytics")
     st.markdown("### Deep dive into your trading performance")
     
-    docs = list(collection.find())
+    # Load fresh data
+    docs = load_fresh_data()
+    
     if docs:
         df = pd.DataFrame(docs)
         df = migrate_old_data(df)
@@ -1571,7 +1613,7 @@ elif page == "⚙️ Settings":
         
         with col1:
             if st.button("📥 Backup Database", use_container_width=True, type="primary"):
-                all_trades = list(collection.find())
+                all_trades = load_fresh_data()
                 if all_trades:
                     df = pd.DataFrame(all_trades)
                     df['_id'] = df['_id'].astype(str)
@@ -1687,7 +1729,7 @@ elif page == "⚙️ Settings":
             - 📥 Data export and backup
             - 🗑️ Flexible delete options
             - ✏️ Editable trade history
-            - 🔄 Backward compatibility
+            - 🔄 Real-time data sync
             """)
         
         st.divider()
