@@ -764,7 +764,7 @@ elif page == "New Trade":
             )
             timeframe = st.selectbox(
                 "Timeframe",
-                ["1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W", "1M"]
+                ["15m", "4H", "1m", "30m", "1H", "5m", "1D", "1W", "1M"]
             )
         
         with col2:
