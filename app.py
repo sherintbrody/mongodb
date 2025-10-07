@@ -44,54 +44,131 @@ db = client[st.secrets["mongo"]["DB"]]
 collection = db[st.secrets["mongo"]["COLLECTION"]]
 
 # --- Helper Functions ---
+def migrate_old_data(df):
+    """Migrate old data format to new format"""
+    if df.empty:
+        return df
+    
+    # Add missing columns with default values
+    if 'status' not in df.columns:
+        df['status'] = 'CLOSED'  # Assume old trades are closed
+    
+    if 'entry_price' not in df.columns and 'price' in df.columns:
+        df['entry_price'] = df['price']
+    
+    if 'quantity' not in df.columns and 'qty' in df.columns:
+        df['quantity'] = df['qty']
+    
+    if 'side' in df.columns:
+        # Convert old side format to new format
+        df['side'] = df['side'].apply(lambda x: 'LONG' if x in ['BUY', 'LONG'] else 'SHORT')
+    else:
+        df['side'] = 'LONG'  # Default
+    
+    if 'entry_date' not in df.columns:
+        df['entry_date'] = datetime.now()
+    
+    # Ensure numeric columns are numeric
+    numeric_cols = ['quantity', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    return df
+
 def calculate_pnl(df):
     """Calculate P&L for closed trades"""
     if df.empty:
         return df
     
-    # Group by symbol and calculate P&L
+    df = migrate_old_data(df)
+    
+    # Only calculate P&L for closed trades with exit prices
     closed_trades = df[df['status'] == 'CLOSED'].copy()
-    if not closed_trades.empty:
+    
+    if not closed_trades.empty and 'exit_price' in closed_trades.columns:
+        # Calculate P&L based on side
         closed_trades['pnl'] = closed_trades.apply(
             lambda row: (row['exit_price'] - row['entry_price']) * row['quantity'] 
-            if row['side'] == 'LONG' 
-            else (row['entry_price'] - row['exit_price']) * row['quantity'],
+            if row['side'] == 'LONG' and pd.notna(row['exit_price'])
+            else (row['entry_price'] - row['exit_price']) * row['quantity']
+            if row['side'] == 'SHORT' and pd.notna(row['exit_price'])
+            else 0,
             axis=1
         )
+        
         closed_trades['pnl_percentage'] = closed_trades.apply(
             lambda row: ((row['exit_price'] - row['entry_price']) / row['entry_price'] * 100) 
-            if row['side'] == 'LONG' 
-            else ((row['entry_price'] - row['exit_price']) / row['entry_price'] * 100),
+            if row['side'] == 'LONG' and pd.notna(row['exit_price']) and row['entry_price'] != 0
+            else ((row['entry_price'] - row['exit_price']) / row['entry_price'] * 100)
+            if row['side'] == 'SHORT' and pd.notna(row['exit_price']) and row['entry_price'] != 0
+            else 0,
             axis=1
         )
-        closed_trades['pnl_after_fees'] = closed_trades['pnl'] - closed_trades.get('total_fees', 0)
+        
+        # Handle fees if they exist
+        if 'total_fees' in closed_trades.columns:
+            closed_trades['pnl_after_fees'] = closed_trades['pnl'] - closed_trades['total_fees'].fillna(0)
+    
     return closed_trades
 
 def calculate_metrics(df):
     """Calculate trading metrics"""
     if df.empty:
-        return {}
-    
-    closed_trades = df[df['status'] == 'CLOSED'].copy()
-    if closed_trades.empty:
         return {
             'total_trades': 0,
+            'open_trades': 0,
             'win_rate': 0,
             'avg_win': 0,
             'avg_loss': 0,
             'profit_factor': 0,
             'total_pnl': 0,
+            'best_trade': 0,
+            'worst_trade': 0,
+            'sharpe_ratio': 0
+        }
+    
+    df = migrate_old_data(df)
+    
+    closed_trades = df[df['status'] == 'CLOSED'].copy()
+    
+    if closed_trades.empty or 'exit_price' not in closed_trades.columns:
+        return {
+            'total_trades': len(df),
+            'open_trades': len(df[df['status'] == 'OPEN']) if 'status' in df.columns else 0,
+            'win_rate': 0,
+            'avg_win': 0,
+            'avg_loss': 0,
+            'profit_factor': 0,
+            'total_pnl': 0,
+            'best_trade': 0,
+            'worst_trade': 0,
             'sharpe_ratio': 0
         }
     
     closed_trades = calculate_pnl(closed_trades)
+    
+    # Only calculate metrics if we have P&L data
+    if 'pnl' not in closed_trades.columns:
+        return {
+            'total_trades': len(df),
+            'open_trades': len(df[df['status'] == 'OPEN']) if 'status' in df.columns else 0,
+            'win_rate': 0,
+            'avg_win': 0,
+            'avg_loss': 0,
+            'profit_factor': 0,
+            'total_pnl': 0,
+            'best_trade': 0,
+            'worst_trade': 0,
+            'sharpe_ratio': 0
+        }
     
     winning_trades = closed_trades[closed_trades['pnl'] > 0]
     losing_trades = closed_trades[closed_trades['pnl'] < 0]
     
     metrics = {
         'total_trades': len(closed_trades),
-        'open_trades': len(df[df['status'] == 'OPEN']),
+        'open_trades': len(df[df['status'] == 'OPEN']) if 'status' in df.columns else 0,
         'win_rate': len(winning_trades) / len(closed_trades) * 100 if len(closed_trades) > 0 else 0,
         'avg_win': winning_trades['pnl'].mean() if not winning_trades.empty else 0,
         'avg_loss': losing_trades['pnl'].mean() if not losing_trades.empty else 0,
@@ -99,7 +176,6 @@ def calculate_metrics(df):
         'total_pnl': closed_trades['pnl'].sum() if not closed_trades.empty else 0,
         'best_trade': closed_trades['pnl'].max() if not closed_trades.empty else 0,
         'worst_trade': closed_trades['pnl'].min() if not closed_trades.empty else 0,
-        'avg_holding_time': 0,  # Would need exit_date to calculate
         'sharpe_ratio': closed_trades['pnl'].mean() / closed_trades['pnl'].std() if not closed_trades.empty and closed_trades['pnl'].std() != 0 else 0
     }
     
@@ -121,6 +197,7 @@ if page == "📊 Dashboard":
     docs = list(collection.find())
     if docs:
         df = pd.DataFrame(docs)
+        df = migrate_old_data(df)
         metrics = calculate_metrics(df)
         
         # Key Metrics Row
@@ -162,54 +239,60 @@ if page == "📊 Dashboard":
         with col1:
             # P&L Over Time
             closed_df = df[df['status'] == 'CLOSED'].copy()
-            if not closed_df.empty:
+            if not closed_df.empty and 'exit_price' in closed_df.columns:
                 closed_df = calculate_pnl(closed_df)
-                closed_df['cumulative_pnl'] = closed_df['pnl'].cumsum()
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=closed_df.index,
-                    y=closed_df['cumulative_pnl'],
-                    mode='lines+markers',
-                    name='Cumulative P&L',
-                    line=dict(color='green' if closed_df['cumulative_pnl'].iloc[-1] > 0 else 'red', width=2)
-                ))
-                fig.update_layout(
-                    title="Cumulative P&L",
-                    xaxis_title="Trade #",
-                    yaxis_title="P&L ($)",
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                if 'pnl' in closed_df.columns and not closed_df['pnl'].isna().all():
+                    closed_df['cumulative_pnl'] = closed_df['pnl'].cumsum()
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=closed_df.index,
+                        y=closed_df['cumulative_pnl'],
+                        mode='lines+markers',
+                        name='Cumulative P&L',
+                        line=dict(color='green' if closed_df['cumulative_pnl'].iloc[-1] > 0 else 'red', width=2)
+                    ))
+                    fig.update_layout(
+                        title="Cumulative P&L",
+                        xaxis_title="Trade #",
+                        yaxis_title="P&L ($)",
+                        height=400
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No P&L data available yet. Close some trades to see P&L.")
+            else:
+                st.info("No closed trades with P&L data available.")
         
         with col2:
-            # Win/Loss Distribution
-            if not closed_df.empty:
-                fig = go.Figure()
-                fig.add_trace(go.Histogram(
-                    x=closed_df['pnl'],
-                    name='P&L Distribution',
-                    marker_color=['green' if x > 0 else 'red' for x in closed_df['pnl']],
-                    nbinsx=20
-                ))
-                fig.update_layout(
-                    title="P&L Distribution",
-                    xaxis_title="P&L ($)",
-                    yaxis_title="Frequency",
-                    height=400
+            # Trade Distribution by Symbol
+            if 'symbol' in df.columns:
+                symbol_counts = df['symbol'].value_counts()
+                fig = px.pie(
+                    values=symbol_counts.values,
+                    names=symbol_counts.index,
+                    title="Trade Distribution by Symbol"
                 )
                 st.plotly_chart(fig, use_container_width=True)
         
         # Recent Trades
         st.subheader("📋 Recent Trades")
-        recent_trades = df.sort_values('entry_date', ascending=False).head(10)
-        display_cols = ['entry_date', 'symbol', 'side', 'quantity', 'entry_price', 'status']
-        if all(col in recent_trades.columns for col in display_cols):
+        # Display columns that exist
+        display_cols = []
+        possible_cols = ['entry_date', 'symbol', 'side', 'quantity', 'entry_price', 'status']
+        for col in possible_cols:
+            if col in df.columns:
+                display_cols.append(col)
+        
+        if display_cols:
+            recent_trades = df.sort_index(ascending=False).head(10)
             st.dataframe(
                 recent_trades[display_cols],
                 use_container_width=True,
                 hide_index=True
             )
+        else:
+            st.dataframe(df.head(10), use_container_width=True, hide_index=True)
     else:
         st.info("No trades recorded yet. Start by adding a new trade!")
 
@@ -316,57 +399,62 @@ elif page == "➕ New Trade":
 elif page == "📈 Open Positions":
     st.title("📈 Open Positions")
     
-    docs = list(collection.find({"status": "OPEN"}))
+    docs = list(collection.find())
     if docs:
         df = pd.DataFrame(docs)
+        df = migrate_old_data(df)
+        open_df = df[df['status'] == 'OPEN']
         
-        # Summary metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Open Positions", len(df))
-        with col2:
-            total_value = (df['quantity'] * df['entry_price']).sum()
-            st.metric("Total Value", f"${total_value:.2f}")
-        with col3:
-            unique_symbols = df['symbol'].nunique()
-            st.metric("Unique Symbols", unique_symbols)
-        
-        st.divider()
-        
-        # Display open positions with actions
-        for idx, trade in df.iterrows():
-            with st.expander(f"{trade['symbol']} - {trade['side']} - {trade['quantity']} @ ${trade['entry_price']}"):
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.write(f"**Entry Date:** {trade.get('entry_date', 'N/A')}")
-                    st.write(f"**Strategy:** {trade.get('strategy', 'N/A')}")
-                    st.write(f"**Stop Loss:** ${trade.get('stop_loss', 'Not set')}")
-                
-                with col2:
-                    st.write(f"**Take Profit:** ${trade.get('take_profit', 'Not set')}")
-                    st.write(f"**Risk Amount:** ${trade.get('risk_amount', 'N/A')}")
-                    st.write(f"**Timeframe:** {trade.get('timeframe', 'N/A')}")
-                
-                with col3:
-                    # Close position form
-                    with st.form(f"close_{trade['_id']}"):
-                        exit_price = st.number_input("Exit Price", min_value=0.01, key=f"exit_{trade['_id']}")
-                        exit_fee = st.number_input("Exit Fee", min_value=0.0, key=f"fee_{trade['_id']}")
-                        if st.form_submit_button("Close Position"):
-                            collection.update_one(
-                                {"_id": trade['_id']},
-                                {"$set": {
-                                    "exit_price": exit_price,
-                                    "exit_fee": exit_fee,
-                                    "exit_date": datetime.now().isoformat(),
-                                    "status": "CLOSED"
-                                }}
-                            )
-                            st.success("Position closed!")
-                            st.rerun()
+        if not open_df.empty:
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Open Positions", len(open_df))
+            with col2:
+                total_value = (open_df['quantity'] * open_df['entry_price']).sum()
+                st.metric("Total Value", f"${total_value:.2f}")
+            with col3:
+                unique_symbols = open_df['symbol'].nunique()
+                st.metric("Unique Symbols", unique_symbols)
+            
+            st.divider()
+            
+            # Display open positions with actions
+            for idx, trade in open_df.iterrows():
+                with st.expander(f"{trade['symbol']} - {trade['side']} - {trade['quantity']} @ ${trade['entry_price']}"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.write(f"**Entry Date:** {trade.get('entry_date', 'N/A')}")
+                        st.write(f"**Strategy:** {trade.get('strategy', 'N/A')}")
+                        st.write(f"**Stop Loss:** ${trade.get('stop_loss', 'Not set')}")
+                    
+                    with col2:
+                        st.write(f"**Take Profit:** ${trade.get('take_profit', 'Not set')}")
+                        st.write(f"**Risk Amount:** ${trade.get('risk_amount', 'N/A')}")
+                        st.write(f"**Timeframe:** {trade.get('timeframe', 'N/A')}")
+                    
+                    with col3:
+                        # Close position form
+                        with st.form(f"close_{trade['_id']}"):
+                            exit_price = st.number_input("Exit Price", min_value=0.01, key=f"exit_{trade['_id']}")
+                            exit_fee = st.number_input("Exit Fee", min_value=0.0, key=f"fee_{trade['_id']}")
+                            if st.form_submit_button("Close Position"):
+                                collection.update_one(
+                                    {"_id": trade['_id']},
+                                    {"$set": {
+                                        "exit_price": exit_price,
+                                        "exit_fee": exit_fee,
+                                        "exit_date": datetime.now().isoformat(),
+                                        "status": "CLOSED"
+                                    }}
+                                )
+                                st.success("Position closed!")
+                                st.rerun()
+        else:
+            st.info("No open positions")
     else:
-        st.info("No open positions")
+        st.info("No trades recorded yet")
 
 # --- Trade History Page ---
 elif page == "📉 Trade History":
@@ -380,7 +468,7 @@ elif page == "📉 Trade History":
         with col2:
             filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED", "PENDING"])
         with col3:
-            filter_side = st.selectbox("Side", ["All", "LONG", "SHORT"])
+            filter_side = st.selectbox("Side", ["All", "LONG", "SHORT", "BUY", "SELL"])
         with col4:
             filter_strategy = st.selectbox(
                 "Strategy",
@@ -395,25 +483,31 @@ elif page == "📉 Trade History":
     if filter_status != "All":
         query["status"] = filter_status
     if filter_side != "All":
-        query["side"] = filter_side
+        if filter_side in ["BUY", "SELL"]:
+            query["side"] = filter_side
+        else:
+            query["side"] = filter_side
     if filter_strategy != "All":
         query["strategy"] = filter_strategy
     
     # Load trades
-    docs = list(collection.find(query).sort("entry_date", -1))
+    docs = list(collection.find(query))
     
     if docs:
         df = pd.DataFrame(docs)
+        df = migrate_old_data(df)
         
         # Calculate P&L for closed trades
         if 'status' in df.columns:
-            closed_df = calculate_pnl(df)
-            if not closed_df.empty and 'pnl' in closed_df.columns:
-                df = df.merge(
-                    closed_df[['_id', 'pnl', 'pnl_percentage']],
-                    on='_id',
-                    how='left'
-                )
+            closed_df = df[df['status'] == 'CLOSED'].copy()
+            if not closed_df.empty and 'exit_price' in closed_df.columns:
+                closed_df = calculate_pnl(closed_df)
+                if 'pnl' in closed_df.columns:
+                    df = df.merge(
+                        closed_df[['_id', 'pnl', 'pnl_percentage']],
+                        on='_id',
+                        how='left'
+                    )
         
         # Display columns selection
         available_cols = [col for col in df.columns if col != '_id']
@@ -434,7 +528,9 @@ elif page == "📉 Trade History":
             # Format numeric columns
             for col in ['entry_price', 'exit_price', 'pnl', 'stop_loss', 'take_profit']:
                 if col in display_df.columns:
-                    display_df[col] = display_df[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "-")
+                    display_df[col] = display_df[col].apply(
+                        lambda x: f"${x:.2f}" if pd.notna(x) and x != 0 else "-"
+                    )
             
             if 'pnl_percentage' in display_df.columns:
                 display_df['pnl_percentage'] = display_df['pnl_percentage'].apply(
@@ -445,13 +541,7 @@ elif page == "📉 Trade History":
             st.dataframe(
                 display_df,
                 use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "pnl": st.column_config.NumberColumn(
-                        "P&L",
-                        format="$%.2f"
-                    ),
-                }
+                hide_index=True
             )
             
             # Export button
@@ -472,33 +562,24 @@ elif page == "📊 Analytics":
     docs = list(collection.find())
     if docs:
         df = pd.DataFrame(docs)
+        df = migrate_old_data(df)
         
-        # Date range filter
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input("Start Date", value=date.today() - timedelta(days=30))
-        with col2:
-            end_date = st.date_input("End Date", value=date.today())
+        # Only show analytics for closed trades with P&L data
+        closed_df = df[df['status'] == 'CLOSED'].copy()
         
-        # Filter data by date if entry_date exists
-        if 'entry_date' in df.columns:
-            df['entry_date'] = pd.to_datetime(df['entry_date'])
-            mask = (df['entry_date'].dt.date >= start_date) & (df['entry_date'].dt.date <= end_date)
-            df = df.loc[mask]
-        
-        if not df.empty:
-            # Tabs for different analytics
-            tab1, tab2, tab3, tab4 = st.tabs(["Performance", "Risk Analysis", "Strategy Analysis", "Behavioral Analysis"])
+        if not closed_df.empty and 'exit_price' in closed_df.columns:
+            closed_df = calculate_pnl(closed_df)
             
-            with tab1:
-                st.subheader("Performance Metrics")
+            if 'pnl' in closed_df.columns and not closed_df['pnl'].isna().all():
+                # Tabs for different analytics
+                tab1, tab2, tab3, tab4 = st.tabs(["Performance", "Risk Analysis", "Strategy Analysis", "Behavioral Analysis"])
                 
-                closed_df = calculate_pnl(df)
-                if not closed_df.empty:
+                with tab1:
+                    st.subheader("Performance Metrics")
+                    
                     # Performance by Symbol
                     symbol_performance = closed_df.groupby('symbol').agg({
-                        'pnl': ['sum', 'mean', 'count'],
-                        'pnl_percentage': 'mean'
+                        'pnl': ['sum', 'mean', 'count']
                     }).round(2)
                     
                     col1, col2 = st.columns(2)
@@ -523,42 +604,20 @@ elif page == "📊 Analytics":
                                 'win_rate': (wins/total * 100) if total > 0 else 0
                             })
                         
-                        win_rate_df = pd.DataFrame(win_rates)
-                        fig = px.bar(
-                            win_rate_df,
-                            x='symbol',
-                            y='win_rate',
-                            title="Win Rate by Symbol",
-                            labels={'win_rate': 'Win Rate (%)', 'symbol': 'Symbol'}
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Monthly Performance
-                    if 'entry_date' in closed_df.columns:
-                        closed_df['month'] = closed_df['entry_date'].dt.to_period('M')
-                        monthly_pnl = closed_df.groupby('month')['pnl'].sum()
-                        
-                        fig = go.Figure()
-                        fig.add_trace(go.Bar(
-                            x=monthly_pnl.index.astype(str),
-                            y=monthly_pnl.values,
-                            marker_color=['green' if x > 0 else 'red' for x in monthly_pnl.values],
-                            text=monthly_pnl.values.round(2),
-                            textposition='outside'
-                        ))
-                        fig.update_layout(
-                            title="Monthly P&L",
-                            xaxis_title="Month",
-                            yaxis_title="P&L ($)",
-                            showlegend=False
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            with tab2:
-                st.subheader("Risk Analysis")
+                        if win_rates:
+                            win_rate_df = pd.DataFrame(win_rates)
+                            fig = px.bar(
+                                win_rate_df,
+                                x='symbol',
+                                y='win_rate',
+                                title="Win Rate by Symbol",
+                                labels={'win_rate': 'Win Rate (%)', 'symbol': 'Symbol'}
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
                 
-                if not closed_df.empty:
-                    # Risk metrics
+                with tab2:
+                    st.subheader("Risk Analysis")
+                    
                     col1, col2, col3 = st.columns(3)
                     
                     with col1:
@@ -574,107 +633,74 @@ elif page == "📊 Analytics":
                         if 'risk_reward_ratio' in closed_df.columns:
                             avg_rr = closed_df['risk_reward_ratio'].mean()
                             st.metric("Avg R:R Ratio", f"{avg_rr:.2f}")
-                    
-                    # Risk distribution
-                    if 'risk_amount' in closed_df.columns:
-                        fig = px.histogram(
-                            closed_df,
-                            x='risk_amount',
-                            title="Risk Amount Distribution",
-                            labels={'risk_amount': 'Risk Amount ($)'},
-                            nbins=20
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            with tab3:
-                st.subheader("Strategy Analysis")
                 
-                if 'strategy' in df.columns:
-                    strategy_df = calculate_pnl(df[df['status'] == 'CLOSED'])
-                    if not strategy_df.empty:
-                        strategy_performance = strategy_df.groupby('strategy').agg({
+                with tab3:
+                    if 'strategy' in closed_df.columns:
+                        st.subheader("Strategy Analysis")
+                        strategy_performance = closed_df.groupby('strategy').agg({
                             'pnl': ['sum', 'mean', 'count']
                         }).round(2)
                         
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            fig = px.pie(
-                                values=strategy_performance[('pnl', 'count')],
-                                names=strategy_performance.index,
-                                title="Trades by Strategy"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        with col2:
-                            fig = px.bar(
-                                x=strategy_performance.index,
-                                y=strategy_performance[('pnl', 'sum')],
-                                title="P&L by Strategy",
-                                labels={'y': 'Total P&L ($)', 'x': 'Strategy'}
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-            
-            with tab4:
-                st.subheader("Behavioral Analysis")
+                        if not strategy_performance.empty:
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                fig = px.pie(
+                                    values=strategy_performance[('pnl', 'count')],
+                                    names=strategy_performance.index,
+                                    title="Trades by Strategy"
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            
+                            with col2:
+                                fig = px.bar(
+                                    x=strategy_performance.index,
+                                    y=strategy_performance[('pnl', 'sum')],
+                                    title="P&L by Strategy",
+                                    labels={'y': 'Total P&L ($)', 'x': 'Strategy'}
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No strategy data available")
                 
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if 'emotion' in df.columns:
-                        emotion_df = calculate_pnl(df[df['status'] == 'CLOSED'])
-                        if not emotion_df.empty and 'emotion' in emotion_df.columns:
-                            emotion_performance = emotion_df.groupby('emotion')['pnl'].mean()
-                            fig = px.bar(
-                                x=emotion_performance.index,
-                                y=emotion_performance.values,
-                                title="Average P&L by Emotional State",
-                                labels={'y': 'Avg P&L ($)', 'x': 'Emotion'}
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                
-                with col2:
-                    if 'confidence_level' in df.columns:
-                        confidence_df = calculate_pnl(df[df['status'] == 'CLOSED'])
-                        if not confidence_df.empty and 'confidence_level' in confidence_df.columns:
-                            fig = px.scatter(
-                                confidence_df,
-                                x='confidence_level',
-                                y='pnl',
-                                title="P&L vs Confidence Level",
-                                labels={'confidence_level': 'Confidence Level', 'pnl': 'P&L ($)'},
-                                trendline="ols"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                
-                # Trading frequency analysis
-                if 'entry_date' in df.columns:
-                    df['weekday'] = df['entry_date'].dt.day_name()
-                    df['hour'] = df['entry_date'].dt.hour
+                with tab4:
+                    st.subheader("Behavioral Analysis")
+                    has_behavioral_data = False
                     
                     col1, col2 = st.columns(2)
+                    
                     with col1:
-                        weekday_counts = df['weekday'].value_counts()
-                        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                        weekday_counts = weekday_counts.reindex(day_order, fill_value=0)
-                        
-                        fig = px.bar(
-                            x=weekday_counts.index,
-                            y=weekday_counts.values,
-                            title="Trading Activity by Day of Week",
-                            labels={'x': 'Day', 'y': 'Number of Trades'}
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                        if 'emotion' in closed_df.columns:
+                            emotion_performance = closed_df.groupby('emotion')['pnl'].mean()
+                            if not emotion_performance.empty:
+                                has_behavioral_data = True
+                                fig = px.bar(
+                                    x=emotion_performance.index,
+                                    y=emotion_performance.values,
+                                    title="Average P&L by Emotional State",
+                                    labels={'y': 'Avg P&L ($)', 'x': 'Emotion'}
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
-                        hour_counts = df['hour'].value_counts().sort_index()
-                        fig = px.line(
-                            x=hour_counts.index,
-                            y=hour_counts.values,
-                            title="Trading Activity by Hour",
-                            labels={'x': 'Hour', 'y': 'Number of Trades'},
-                            markers=True
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                        if 'confidence_level' in closed_df.columns:
+                            confidence_data = closed_df[['confidence_level', 'pnl']].dropna()
+                            if not confidence_data.empty:
+                                has_behavioral_data = True
+                                fig = px.scatter(
+                                    confidence_data,
+                                    x='confidence_level',
+                                    y='pnl',
+                                    title="P&L vs Confidence Level",
+                                    labels={'confidence_level': 'Confidence Level', 'pnl': 'P&L ($)'}
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                    
+                    if not has_behavioral_data:
+                        st.info("No behavioral data available. Add trades with emotion and confidence data to see analysis.")
+            else:
+                st.info("No trades with complete P&L data. Close some trades with exit prices to see analytics.")
+        else:
+            st.info("No closed trades available for analysis")
     else:
         st.info("No data available for analytics")
 
@@ -696,6 +722,8 @@ elif page == "⚙️ Settings":
             all_trades = list(collection.find())
             if all_trades:
                 df = pd.DataFrame(all_trades)
+                # Convert ObjectId to string for CSV export
+                df['_id'] = df['_id'].astype(str)
                 csv = df.to_csv(index=False)
                 st.download_button(
                     label="Download Backup",
@@ -739,6 +767,7 @@ elif page == "⚙️ Settings":
         - Risk management tools
         - Strategy analysis
         - Behavioral tracking
+        - Backward compatible with old data format
         
         **Created with:** Streamlit, MongoDB, Plotly, Pandas
         """)
