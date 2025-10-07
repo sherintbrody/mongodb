@@ -1,4 +1,4 @@
 streamlit
-pymongo
+supabase
 pandas
 plotly
