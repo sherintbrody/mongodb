@@ -952,10 +952,14 @@ elif page == "Open Positions":
         st.info("📝 No trades recorded yet")
 
 
+
 # --- Trade History Page ---
 elif page == "Trade History":
     st.title("📉 Trade History")
     st.markdown("### Complete record of all your trades")
+    
+    # Create a unique key based on filters to force refresh
+    filter_key = ""
     
     # Filters
     with st.expander("🔍 Filters", expanded=False):
@@ -972,40 +976,52 @@ elif page == "Trade History":
             except:
                 pass
             
-            filter_symbol = st.selectbox("Symbol", symbol_options)
+            filter_symbol = st.selectbox("Symbol", symbol_options, key="filter_symbol_select")
+            filter_key += str(filter_symbol)
         
         with col2:
-            filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
+            filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"], key="filter_status_select")
+            filter_key += str(filter_status)
         
         with col3:
-            filter_side = st.selectbox("Side", ["All", "LONG", "SHORT"])
+            filter_side = st.selectbox("Side", ["All", "LONG", "SHORT"], key="filter_side_select")
+            filter_key += str(filter_side)
         
         with col4:
-            filter_outcome = st.selectbox("Outcome", ["All", "WIN", "LOSS", "BE", "TSL", "PENDING"])
+            filter_outcome = st.selectbox("Outcome", ["All", "WIN", "LOSS", "BE", "TSL", "PENDING"], key="filter_outcome_select")
+            filter_key += str(filter_outcome)
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             filter_strategy = st.selectbox(
                 "Strategy",
                 ["All", "Scalping", "Day Trading", "Swing Trading", "Position Trading", 
-                 "Momentum", "Mean Reversion", "Breakout", "Other"]
+                 "Momentum", "Mean Reversion", "Breakout", "Other"],
+                key="filter_strategy_select"
             )
+            filter_key += str(filter_strategy)
         with col2:
             filter_trade_type = st.selectbox(
                 "Trade Type",
-                ["All", "FOREX", "INDICES", "COMMODITIES", "CRYPTO", "STOCK", "OPTIONS", "FUTURES"]
+                ["All", "FOREX", "INDICES", "COMMODITIES", "CRYPTO", "STOCK", "OPTIONS", "FUTURES"],
+                key="filter_trade_type_select"
             )
+            filter_key += str(filter_trade_type)
         with col3:
             filter_timeframe = st.selectbox(
                 "Timeframe",
-                ["All", "1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W", "1M"]
+                ["All", "1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W", "1M"],
+                key="filter_timeframe_select"
             )
+            filter_key += str(filter_timeframe)
         with col4:
             # Date range filter
             date_filter = st.selectbox(
                 "Date Range",
-                ["All Time", "Today", "This Week", "This Month", "Last 30 Days", "Last 90 Days", "This Year"]
+                ["All Time", "Today", "This Week", "This Month", "Last 30 Days", "Last 90 Days", "This Year"],
+                key="filter_date_select"
             )
+            filter_key += str(date_filter)
     
     # Build query
     query = {}
@@ -1059,35 +1075,58 @@ elif page == "Trade History":
         
         query["entry_date"] = {"$gte": start_date.isoformat()}
     
-    # Load filtered trades
-    try:
-        docs = list(collection.find(query))
-    except Exception as e:
-        st.error(f"Error loading trades: {str(e)}")
-        docs = []
+    # Debug info (optional - remove in production)
+    # st.write("Debug - Query:", query)
     
-    if docs:
-        df = pd.DataFrame(docs)
+    # Load ALL trades first
+    all_docs = list(collection.find())
+    
+    # Then apply filter query
+    if query:
+        filtered_docs = list(collection.find(query))
+    else:
+        filtered_docs = all_docs
+    
+    if filtered_docs:
+        # Create DataFrame from FILTERED docs
+        df = pd.DataFrame(filtered_docs)
         df = migrate_old_data(df)
         
         # Create a copy for MongoDB IDs
         df_ids = df['_id'].tolist()
         
         # Display summary with filter results
-        col1, col2, col3 = st.columns([2, 1, 1])
+        col1, col2, col3, col4 = st.columns([1.5, 1, 1, 0.5])
         with col1:
-            st.markdown(f"**Found {len(df)} trades matching filters**")
+            st.markdown(f"**Found {len(df)} trades (of {len(all_docs)} total)**")
         with col2:
             if len(df) > 0 and 'pnl' in df.columns:
                 total_filtered_pnl = df['pnl'].sum()
                 color = "🟢" if total_filtered_pnl >= 0 else "🔴"
                 st.markdown(f"**{color} P&L: ${total_filtered_pnl:.2f}**")
         with col3:
-            if len(df) > 0:
-                if st.button("🔄 Clear Filters", use_container_width=True):
-                    st.rerun()
+            if len(df) > 0 and 'pnl' in df.columns:
+                wins = len(df[df['pnl'] > 0])
+                losses = len(df[df['pnl'] < 0])
+                st.markdown(f"**W: {wins} / L: {losses}**")
+        with col4:
+            if st.button("🔄", help="Clear Filters"):
+                for key in ["filter_symbol_select", "filter_status_select", "filter_side_select", 
+                           "filter_outcome_select", "filter_strategy_select", "filter_trade_type_select",
+                           "filter_timeframe_select", "filter_date_select"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
         
         st.divider()
+        
+        # Sort dataframe by entry_date descending (most recent first)
+        if 'entry_date' in df.columns:
+            df['entry_date_temp'] = pd.to_datetime(df['entry_date'], errors='coerce')
+            df = df.sort_values('entry_date_temp', ascending=False)
+            df = df.drop('entry_date_temp', axis=1)
+            # Update df_ids after sorting
+            df_ids = df['_id'].tolist()
         
         # Fixed display columns
         display_cols = ['entry_date', 'exit_date', 'symbol', 'side', 'outcome', 'quantity', 
@@ -1096,11 +1135,11 @@ elif page == "Trade History":
         # Filter to only include columns that exist
         display_cols = [col for col in display_cols if col in df.columns]
         
-        # Create editable dataframe
+        # Create editable dataframe FROM FILTERED DATA
         edit_df = df[display_cols].copy()
         
         # Store original index mapping
-        edit_df['original_index'] = range(len(edit_df))
+        edit_df['original_index'] = df.reset_index(drop=True).index
         
         # Format for display
         for col in display_cols:
@@ -1140,15 +1179,18 @@ elif page == "Trade History":
         
         column_config['original_index'] = None  # Hide index column
         
-        # Editable data editor
+        # Use dynamic key for data_editor to force refresh when filters change
+        editor_key = f"trade_editor_{filter_key}_{len(df)}"
+        
+        # Editable data editor - NOW WITH FILTERED DATA
         edited_df = st.data_editor(
             edit_df,
             column_config=column_config,
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",
-            height=450,
-            key="trade_editor"
+            height=min(450, 50 + len(edit_df) * 35),  # Dynamic height based on rows
+            key=editor_key
         )
         
         # Save changes button
@@ -1178,7 +1220,7 @@ elif page == "Trade History":
                                 iso_date = parse_date_from_display(str(new_value))
                                 if iso_date:
                                     update_data[col] = iso_date
-                            # Handle numeric fields - IMPORTANT: Convert to float
+                            # Handle numeric fields
                             elif col in ['quantity', 'entry_price', 'exit_price', 'pnl', 'stop_loss', 
                                        'take_profit', 'risk_amount', 'risk_reward_ratio']:
                                 try:
@@ -1200,29 +1242,28 @@ elif page == "Trade History":
                     
                     if success_count > 0:
                         st.success(f"✅ Successfully updated {success_count} trade(s)!")
-                        # Clear cache and wait then refresh
                         st.cache_data.clear()
                         increment_data_version()
                         import time
                         time.sleep(0.5)
                         st.rerun()
                     else:
-                        st.info("ℹ️ No changes detected or all values were the same")
+                        st.info("ℹ️ No changes detected")
                         
                 except Exception as e:
                     st.error(f"❌ Error saving changes: {str(e)}")
         
         st.divider()
         
-        # Individual delete section
+        # Individual delete section - ONLY FROM FILTERED TRADES
         st.markdown("### 🗑️ Delete Individual Trade")
         
         col1, col2 = st.columns([3, 1])
         
         with col1:
-            # Create readable options for trade selection
+            # Create readable options for trade selection FROM FILTERED DATA
             trade_options = []
-            for idx, row in df.iterrows():
+            for idx, (_, row) in enumerate(df.iterrows()):
                 entry_date = format_date_display(row.get('entry_date', 'N/A'))
                 symbol = row.get('symbol', 'N/A')
                 side = row.get('side', 'N/A')
@@ -1231,11 +1272,14 @@ elif page == "Trade History":
                 
                 trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str}")
             
-            selected_trade_idx = st.selectbox(
-                "Select trade to delete",
-                range(len(trade_options)),
-                format_func=lambda x: trade_options[x]
-            )
+            if trade_options:
+                selected_trade_idx = st.selectbox(
+                    "Select trade to delete (from filtered results)",
+                    range(len(trade_options)),
+                    format_func=lambda x: trade_options[x]
+                )
+            else:
+                selected_trade_idx = None
         
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1257,7 +1301,7 @@ elif page == "Trade History":
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Export button
+            # Export FILTERED DATA
             export_df = df.copy()
             if 'entry_date' in export_df.columns:
                 export_df['entry_date'] = export_df['entry_date'].apply(format_date_display)
@@ -1266,22 +1310,22 @@ elif page == "Trade History":
             
             csv = export_df.to_csv(index=False)
             st.download_button(
-                label="📥 Download CSV",
+                label=f"📥 Download CSV ({len(df)} trades)",
                 data=csv,
-                file_name=f"trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"trades_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 type="primary"
             )
         
         with col2:
-            if st.button("🗑️ Delete All Filtered", type="secondary", use_container_width=True):
+            if st.button(f"🗑️ Delete All {len(df)} Filtered", type="secondary", use_container_width=True):
                 st.session_state['confirm_bulk_delete'] = True
         
         with col3:
             if st.session_state.get('confirm_bulk_delete', False):
-                if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
-                    result = collection.delete_many(query)
+                if st.button(f"⚠️ Confirm Delete {len(df)}", type="secondary", use_container_width=True):
+                    result = collection.delete_many(query if query else {})
                     st.success(f"✅ Deleted {result.deleted_count} trade(s)!")
                     st.session_state['confirm_bulk_delete'] = False
                     st.cache_data.clear()
