@@ -2,3 +2,4 @@ streamlit
 pymongo
 pandas
 plotly
+streamlit-option-menu
