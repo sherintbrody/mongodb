@@ -130,6 +130,22 @@ CRYPTO = ["BTC/USD", "ETH/USD", "BTC/USDT", "ETH/USDT", "XRP/USD", "SOL/USD"]
 ALL_SYMBOLS = ["Custom"] + INDICES + FOREX_MAJORS + FOREX_MINORS + COMMODITIES + CRYPTO
 
 # --- Helper Functions ---
+def format_date_display(date_val):
+    """Format date to DD-MM-YYYY"""
+    if pd.isna(date_val) or date_val is None:
+        return "-"
+    
+    try:
+        if isinstance(date_val, str):
+            dt = datetime.fromisoformat(date_val.replace('Z', '+00:00'))
+        elif isinstance(date_val, datetime):
+            dt = date_val
+        else:
+            return "-"
+        return dt.strftime('%d-%m-%Y')
+    except:
+        return "-"
+
 def migrate_old_data(df):
     """Migrate old data format to new format"""
     if df.empty:
@@ -160,6 +176,10 @@ def migrate_old_data(df):
     # Add pnl field if not present
     if 'pnl' not in df.columns:
         df['pnl'] = None
+    
+    # Add exit_date if not present
+    if 'exit_date' not in df.columns:
+        df['exit_date'] = None
     
     # Ensure numeric columns are numeric
     numeric_cols = ['quantity', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount', 'pnl']
@@ -277,6 +297,31 @@ def capitalize_headers(text):
     """Capitalize first letter of each word"""
     return ' '.join(word.capitalize() for word in str(text).split('_'))
 
+def get_chart_layout(title=""):
+    """Get standard chart layout with black background"""
+    return dict(
+        title=title,
+        plot_bgcolor='#000000',
+        paper_bgcolor='#000000',
+        font=dict(color='white', size=12),
+        xaxis=dict(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.3)',
+            zeroline=True,
+            zerolinecolor='rgba(128,128,128,0.5)',
+            color='white'
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.3)',
+            zeroline=True,
+            zerolinecolor='rgba(128,128,128,0.5)',
+            color='white'
+        )
+    )
+
 # --- Sidebar Navigation ---
 st.sidebar.title("🚀 Trading Journal Pro")
 st.sidebar.markdown("---")
@@ -373,7 +418,7 @@ if page == "📊 Dashboard":
             
             # Determine color based on final value
             line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
-            fill_color = 'rgba(0, 200, 83, 0.1)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.1)'
+            fill_color = 'rgba(0, 200, 83, 0.2)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.2)'
             
             # Add line with markers
             fig.add_trace(go.Scatter(
@@ -398,36 +443,23 @@ if page == "📊 Dashboard":
             # Add zero line
             fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
             
-            fig.update_layout(
-                xaxis_title="Trade Number",
-                yaxis_title="Cumulative P&L ($)",
-                height=500,
-                hovermode='x unified',
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font=dict(size=12),
-                showlegend=True,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                ),
-                xaxis=dict(
-                    showgrid=True,
-                    gridwidth=1,
-                    gridcolor='rgba(128,128,128,0.2)',
-                    zeroline=True,
-                    dtick=1  # Fixed tick interval
-                ),
-                yaxis=dict(
-                    showgrid=True,
-                    gridwidth=1,
-                    gridcolor='rgba(128,128,128,0.2)',
-                    zeroline=True
-                )
+            layout = get_chart_layout()
+            layout['xaxis_title'] = "Trade Number"
+            layout['yaxis_title'] = "Cumulative P&L ($)"
+            layout['height'] = 500
+            layout['hovermode'] = 'x unified'
+            layout['showlegend'] = True
+            layout['legend'] = dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+                font=dict(color='white')
             )
+            layout['xaxis']['dtick'] = 1
+            
+            fig.update_layout(**layout)
             
             st.plotly_chart(fig, use_container_width=True)
             
@@ -444,13 +476,16 @@ if page == "📊 Dashboard":
                 
                 trade_nums = list(range(1, len(equity_df) + 1))
                 
+                # Calculate fixed bar width based on number of trades
+                bar_width = 0.4 if len(equity_df) > 50 else 0.6 if len(equity_df) > 20 else 0.8
+                
                 # Winning trades
                 fig.add_trace(go.Bar(
                     x=trade_nums,
                     y=[pnl if pnl > 0 else 0 for pnl in equity_df['pnl']],
                     name='Wins',
                     marker_color='#00c853',
-                    width=0.8
+                    width=bar_width
                 ))
                 
                 # Losing trades
@@ -459,29 +494,19 @@ if page == "📊 Dashboard":
                     y=[pnl if pnl < 0 else 0 for pnl in equity_df['pnl']],
                     name='Losses',
                     marker_color='#ff1744',
-                    width=0.8
+                    width=bar_width
                 ))
                 
-                fig.update_layout(
-                    xaxis_title="Trade Number",
-                    yaxis_title="P&L ($)",
-                    height=400,
-                    barmode='relative',
-                    plot_bgcolor='white',
-                    paper_bgcolor='white',
-                    showlegend=True,
-                    xaxis=dict(
-                        showgrid=True,
-                        gridwidth=1,
-                        gridcolor='rgba(128,128,128,0.2)',
-                        dtick=1
-                    ),
-                    yaxis=dict(
-                        showgrid=True,
-                        gridwidth=1,
-                        gridcolor='rgba(128,128,128,0.2)'
-                    )
-                )
+                layout = get_chart_layout()
+                layout['xaxis_title'] = "Trade Number"
+                layout['yaxis_title'] = "P&L ($)"
+                layout['height'] = 400
+                layout['barmode'] = 'relative'
+                layout['showlegend'] = True
+                layout['legend'] = dict(font=dict(color='white'))
+                layout['xaxis']['dtick'] = 1
+                
+                fig.update_layout(**layout)
                 
                 st.plotly_chart(fig, use_container_width=True)
             
@@ -506,12 +531,12 @@ if page == "📊 Dashboard":
                             marker=dict(colors=[colors.get(x, '#808080') for x in outcome_counts.index])
                         )])
                         
-                        fig.update_layout(
-                            height=400,
-                            showlegend=True,
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                        )
+                        layout = get_chart_layout()
+                        layout['height'] = 400
+                        layout['showlegend'] = True
+                        layout['legend'] = dict(font=dict(color='white'))
+                        
+                        fig.update_layout(**layout)
                         
                         st.plotly_chart(fig, use_container_width=True)
                     else:
@@ -528,12 +553,12 @@ if page == "📊 Dashboard":
                             hole=.4
                         )])
                         
-                        fig.update_layout(
-                            height=400,
-                            showlegend=True,
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                        )
+                        layout = get_chart_layout()
+                        layout['height'] = 400
+                        layout['showlegend'] = True
+                        layout['legend'] = dict(font=dict(color='white'))
+                        
+                        fig.update_layout(**layout)
                         
                         st.plotly_chart(fig, use_container_width=True)
         else:
@@ -545,7 +570,7 @@ if page == "📊 Dashboard":
         st.markdown("### 📋 Recent Trades")
         
         display_cols = []
-        possible_cols = ['entry_date', 'symbol', 'side', 'outcome', 'quantity', 'entry_price', 'exit_price', 'pnl', 'status']
+        possible_cols = ['entry_date', 'exit_date', 'symbol', 'side', 'outcome', 'quantity', 'entry_price', 'exit_price', 'pnl', 'status']
         for col in possible_cols:
             if col in df.columns:
                 display_cols.append(col)
@@ -553,7 +578,14 @@ if page == "📊 Dashboard":
         if display_cols:
             recent_trades = df.sort_index(ascending=False).head(10)[display_cols].copy()
             
-            # Format display
+            # Format dates
+            if 'entry_date' in recent_trades.columns:
+                recent_trades['entry_date'] = recent_trades['entry_date'].apply(format_date_display)
+            
+            if 'exit_date' in recent_trades.columns:
+                recent_trades['exit_date'] = recent_trades['exit_date'].apply(format_date_display)
+            
+            # Format P&L
             if 'pnl' in recent_trades.columns:
                 recent_trades['pnl'] = recent_trades['pnl'].apply(
                     lambda x: f"${x:.2f}" if pd.notna(x) else "-"
@@ -564,7 +596,8 @@ if page == "📊 Dashboard":
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "entry_date": st.column_config.DatetimeColumn("Entry Date", format="DD/MM/YYYY HH:mm"),
+                    "entry_date": st.column_config.TextColumn("Entry Date"),
+                    "exit_date": st.column_config.TextColumn("Exit Date"),
                     "symbol": st.column_config.TextColumn("Symbol"),
                     "side": st.column_config.TextColumn("Side"),
                     "outcome": st.column_config.TextColumn("Outcome"),
@@ -680,6 +713,7 @@ elif page == "➕ New Trade":
                     "entry_price": entry_price,
                     "exit_price": exit_price if exit_price > 0 else None,
                     "entry_date": datetime.combine(entry_date, entry_time).isoformat(),
+                    "exit_date": datetime.now().isoformat() if status == "CLOSED" else None,
                     "status": status,
                     "outcome": outcome,
                     "pnl": pnl if pnl != 0 else None,
@@ -743,7 +777,7 @@ elif page == "📈 Open Positions":
                     
                     with col1:
                         st.markdown("**📅 Trade Information**")
-                        st.write(f"Entry Date: {trade.get('entry_date', 'N/A')}")
+                        st.write(f"Entry Date: {format_date_display(trade.get('entry_date', 'N/A'))}")
                         st.write(f"Strategy: {trade.get('strategy', 'N/A')}")
                         st.write(f"Timeframe: {trade.get('timeframe', 'N/A')}")
                         st.write(f"Type: {trade.get('trade_type', 'N/A')}")
@@ -871,187 +905,187 @@ elif page == "📉 Trade History":
         
         st.divider()
         
-        # Display columns selection
-        available_cols = [col for col in df.columns if col != '_id']
-        default_cols = ['entry_date', 'symbol', 'side', 'outcome', 'quantity', 'entry_price', 
-                       'exit_price', 'pnl', 'status', 'strategy']
-        display_cols = [col for col in default_cols if col in available_cols]
+        # Fixed display columns - removed select option
+        display_cols = ['entry_date', 'exit_date', 'symbol', 'side', 'outcome', 'quantity', 
+                       'entry_price', 'exit_price', 'pnl', 'status', 'strategy', 'timeframe']
         
-        selected_cols = st.multiselect(
-            "📊 Select columns to display",
-            available_cols,
-            default=display_cols
+        # Filter to only include columns that exist
+        display_cols = [col for col in display_cols if col in df.columns]
+        
+        # Create editable dataframe with proper types
+        edit_df = df[display_cols].copy()
+        
+        # Convert types for data_editor compatibility
+        for col in edit_df.columns:
+            if col in ['entry_date', 'exit_date']:
+                # Convert to DD-MM-YYYY format
+                edit_df[col] = edit_df[col].apply(format_date_display)
+            elif edit_df[col].dtype == 'object':
+                # Ensure string columns are proper strings
+                edit_df[col] = edit_df[col].astype(str).replace('nan', '').replace('-', '')
+            elif pd.api.types.is_numeric_dtype(edit_df[col]):
+                # Fill NaN in numeric columns with 0
+                edit_df[col] = edit_df[col].fillna(0)
+        
+        # Add index as a display column
+        edit_df.insert(0, 'Row', range(len(edit_df)))
+        
+        # Column configuration with red headers
+        column_config = {
+            'Row': st.column_config.NumberColumn('Row', disabled=True, width="small")
+        }
+        
+        for col in display_cols:
+            capitalized = capitalize_headers(col)
+            
+            if col in ['entry_date', 'exit_date']:
+                column_config[col] = st.column_config.TextColumn(
+                    capitalized,
+                    help="Format: DD-MM-YYYY",
+                    width="medium"
+                )
+            elif col in ['pnl', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount']:
+                column_config[col] = st.column_config.NumberColumn(
+                    capitalized,
+                    format="%.2f",
+                    width="medium"
+                )
+            elif col in ['quantity', 'risk_reward_ratio']:
+                column_config[col] = st.column_config.NumberColumn(
+                    capitalized,
+                    format="%.4f",
+                    width="medium"
+                )
+            else:
+                column_config[col] = st.column_config.TextColumn(capitalized, width="medium")
+        
+        # Editable data editor
+        edited_df = st.data_editor(
+            edit_df,
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            height=450,
+            key="trade_editor"
         )
         
-        if selected_cols:
-            # Create editable dataframe with proper types
-            edit_df = df[selected_cols].copy()
-            
-            # Convert types for data_editor compatibility
-            for col in edit_df.columns:
-                if col == 'entry_date':
-                    # Convert to string for editing
-                    edit_df[col] = pd.to_datetime(edit_df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
-                elif edit_df[col].dtype == 'object':
-                    # Ensure string columns are proper strings
-                    edit_df[col] = edit_df[col].astype(str).replace('nan', '')
-                elif pd.api.types.is_numeric_dtype(edit_df[col]):
-                    # Fill NaN in numeric columns with 0
-                    edit_df[col] = edit_df[col].fillna(0)
-            
-            # Add index as a display column
-            edit_df.insert(0, 'Row', range(len(edit_df)))
-            
-            # Column configuration with red headers
-            column_config = {
-                'Row': st.column_config.NumberColumn('Row', disabled=True, width="small")
-            }
-            
-            for col in selected_cols:
-                capitalized = capitalize_headers(col)
-                
-                if col == 'entry_date':
-                    column_config[col] = st.column_config.TextColumn(
-                        capitalized,
-                        help="Format: YYYY-MM-DD HH:MM:SS"
-                    )
-                elif col in ['pnl', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount']:
-                    column_config[col] = st.column_config.NumberColumn(
-                        capitalized,
-                        format="%.2f"
-                    )
-                elif col in ['quantity', 'risk_reward_ratio']:
-                    column_config[col] = st.column_config.NumberColumn(
-                        capitalized,
-                        format="%.4f"
-                    )
-                else:
-                    column_config[col] = st.column_config.TextColumn(capitalized)
-            
-            # Editable data editor
-            edited_df = st.data_editor(
-                edit_df,
-                column_config=column_config,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="fixed",
-                height=450,
-                key="trade_editor"
-            )
-            
-            # Save changes button
-            col1, col2, col3 = st.columns([2, 1, 2])
-            with col2:
-                if st.button("💾 Save Changes", type="primary", use_container_width=True):
-                    try:
-                        # Update MongoDB with edited data
-                        for idx in range(len(edited_df)):
-                            # Get the original MongoDB _id
-                            original_idx = edited_df.iloc[idx]['Row']
-                            trade_id = id_mapping[original_idx]
-                            
-                            # Get updated row data
-                            row = edited_df.iloc[idx].drop('Row')
-                            update_data = {}
-                            
-                            for col in row.index:
-                                value = row[col]
-                                
-                                # Skip empty strings
-                                if value == '' or (isinstance(value, float) and pd.isna(value)):
-                                    continue
-                                
-                                # Convert entry_date back to datetime
-                                if col == 'entry_date':
-                                    try:
-                                        update_data[col] = datetime.strptime(str(value), '%Y-%m-%d %H:%M:%S').isoformat()
-                                    except:
-                                        continue
-                                else:
-                                    update_data[col] = value
-                            
-                            # Update in MongoDB
-                            if update_data:
-                                collection.update_one(
-                                    {"_id": trade_id},
-                                    {"$set": update_data}
-                                )
+        # Save changes button
+        col1, col2, col3 = st.columns([2, 1, 2])
+        with col2:
+            if st.button("💾 Save Changes", type="primary", use_container_width=True):
+                try:
+                    # Update MongoDB with edited data
+                    for idx in range(len(edited_df)):
+                        # Get the original MongoDB _id
+                        original_idx = edited_df.iloc[idx]['Row']
+                        trade_id = id_mapping[original_idx]
                         
-                        st.success("✅ Changes saved successfully!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error saving changes: {str(e)}")
-            
-            st.divider()
-            
-            # Individual delete section
-            st.markdown("### 🗑️ Delete Individual Trade")
-            
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                # Create readable options for trade selection
-                trade_options = []
-                for idx, row in df.iterrows():
-                    entry_date = row.get('entry_date', 'N/A')
-                    if isinstance(entry_date, str):
-                        try:
-                            entry_date = datetime.fromisoformat(entry_date).strftime('%Y-%m-%d')
-                        except:
-                            entry_date = 'N/A'
+                        # Get updated row data
+                        row = edited_df.iloc[idx].drop('Row')
+                        update_data = {}
+                        
+                        for col in row.index:
+                            value = row[col]
+                            
+                            # Skip empty strings
+                            if value == '' or (isinstance(value, float) and pd.isna(value)):
+                                continue
+                            
+                            # Convert dates back to ISO format
+                            if col in ['entry_date', 'exit_date']:
+                                try:
+                                    # Parse DD-MM-YYYY format
+                                    if value and value != '-':
+                                        dt = datetime.strptime(str(value), '%d-%m-%Y')
+                                        update_data[col] = dt.isoformat()
+                                except:
+                                    continue
+                            else:
+                                update_data[col] = value
+                        
+                        # Update in MongoDB
+                        if update_data:
+                            collection.update_one(
+                                {"_id": trade_id},
+                                {"$set": update_data}
+                            )
                     
-                    symbol = row.get('symbol', 'N/A')
-                    side = row.get('side', 'N/A')
-                    pnl = row.get('pnl', 0)
-                    pnl_str = f"${pnl:.2f}" if pd.notna(pnl) else "N/A"
-                    
-                    trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str}")
+                    st.success("✅ Changes saved successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error saving changes: {str(e)}")
+        
+        st.divider()
+        
+        # Individual delete section
+        st.markdown("### 🗑️ Delete Individual Trade")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Create readable options for trade selection
+            trade_options = []
+            for idx, row in df.iterrows():
+                entry_date = format_date_display(row.get('entry_date', 'N/A'))
+                symbol = row.get('symbol', 'N/A')
+                side = row.get('side', 'N/A')
+                pnl = row.get('pnl', 0)
+                pnl_str = f"${pnl:.2f}" if pd.notna(pnl) else "N/A"
                 
-                selected_trade_idx = st.selectbox(
-                    "Select trade to delete",
-                    range(len(trade_options)),
-                    format_func=lambda x: trade_options[x]
-                )
+                trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str}")
             
-            with col2:
-                st.markdown("<br>", unsafe_allow_html=True)  # Spacing
-                if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
-                    if selected_trade_idx is not None:
-                        trade_id = df.iloc[selected_trade_idx]['_id']
-                        collection.delete_one({"_id": trade_id})
-                        st.success("✅ Trade deleted successfully!")
-                        st.rerun()
+            selected_trade_idx = st.selectbox(
+                "Select trade to delete",
+                range(len(trade_options)),
+                format_func=lambda x: trade_options[x]
+            )
+        
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+            if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
+                if selected_trade_idx is not None:
+                    trade_id = df.iloc[selected_trade_idx]['_id']
+                    collection.delete_one({"_id": trade_id})
+                    st.success("✅ Trade deleted successfully!")
+                    st.rerun()
+        
+        st.divider()
+        
+        # Export and bulk delete buttons
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Export button
+            export_df = df.copy()
+            if 'entry_date' in export_df.columns:
+                export_df['entry_date'] = export_df['entry_date'].apply(format_date_display)
+            if 'exit_date' in export_df.columns:
+                export_df['exit_date'] = export_df['exit_date'].apply(format_date_display)
             
-            st.divider()
-            
-            # Export and bulk delete buttons
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                # Export button
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=csv,
-                    file_name=f"trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                    type="primary"
-                )
-            
-            with col2:
-                if st.button("🗑️ Delete All Filtered", type="secondary", use_container_width=True):
-                    st.session_state['confirm_bulk_delete'] = True
-            
-            with col3:
-                # Confirmation for bulk delete
-                if st.session_state.get('confirm_bulk_delete', False):
-                    if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
-                        collection.delete_many(query)
-                        st.success("✅ Filtered trades deleted!")
-                        st.session_state['confirm_bulk_delete'] = False
-                        st.rerun()
-                    
+            csv = export_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                type="primary"
+            )
+        
+        with col2:
+            if st.button("🗑️ Delete All Filtered", type="secondary", use_container_width=True):
+                st.session_state['confirm_bulk_delete'] = True
+        
+        with col3:
+            # Confirmation for bulk delete
+            if st.session_state.get('confirm_bulk_delete', False):
+                if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
+                    collection.delete_many(query)
+                    st.success("✅ Filtered trades deleted!")
+                    st.session_state['confirm_bulk_delete'] = False
+                    st.rerun()
+                
     else:
         st.info("📭 No trades found with the selected filters")
 
@@ -1091,7 +1125,7 @@ elif page == "📊 Analytics":
                         fig = go.Figure()
                         
                         line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
-                        fill_color = 'rgba(0, 200, 83, 0.1)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.1)'
+                        fill_color = 'rgba(0, 200, 83, 0.2)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.2)'
                         
                         fig.add_trace(go.Scatter(
                             x=trade_numbers,
@@ -1114,25 +1148,16 @@ elif page == "📊 Analytics":
                         
                         fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
                         
-                        fig.update_layout(
-                            xaxis_title="Trade Number",
-                            yaxis_title="Cumulative P&L ($)",
-                            height=500,
-                            hovermode='x unified',
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                            xaxis=dict(
-                                showgrid=True,
-                                gridwidth=1,
-                                gridcolor='rgba(128,128,128,0.2)',
-                                dtick=1
-                            ),
-                            yaxis=dict(
-                                showgrid=True,
-                                gridwidth=1,
-                                gridcolor='rgba(128,128,128,0.2)'
-                            )
-                        )
+                        layout = get_chart_layout()
+                        layout['xaxis_title'] = "Trade Number"
+                        layout['yaxis_title'] = "Cumulative P&L ($)"
+                        layout['height'] = 500
+                        layout['hovermode'] = 'x unified'
+                        layout['showlegend'] = True
+                        layout['legend'] = dict(font=dict(color='white'))
+                        layout['xaxis']['dtick'] = 1
+                        
+                        fig.update_layout(**layout)
                         
                         st.plotly_chart(fig, use_container_width=True)
                     
@@ -1155,27 +1180,16 @@ elif page == "📊 Analytics":
                             x=symbol_performance.values,
                             orientation='h',
                             marker=dict(color=colors),
-                            width=0.6
+                            width=0.5
                         ))
                         
-                        fig.update_layout(
-                            xaxis_title="P&L ($)",
-                            yaxis_title="Symbol",
-                            height=400,
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                            showlegend=False,
-                            xaxis=dict(
-                                showgrid=True,
-                                gridwidth=1,
-                                gridcolor='rgba(128,128,128,0.2)'
-                            ),
-                            yaxis=dict(
-                                showgrid=True,
-                                gridwidth=1,
-                                gridcolor='rgba(128,128,128,0.2)'
-                            )
-                        )
+                        layout = get_chart_layout()
+                        layout['xaxis_title'] = "P&L ($)"
+                        layout['yaxis_title'] = "Symbol"
+                        layout['height'] = 400
+                        layout['showlegend'] = False
+                        
+                        fig.update_layout(**layout)
                         
                         st.plotly_chart(fig, use_container_width=True)
                     
@@ -1205,28 +1219,17 @@ elif page == "📊 Analytics":
                                 marker=dict(color='#2196f3'),
                                 text=win_rate_df['win_rate'].apply(lambda x: f'{x:.1f}%'),
                                 textposition='outside',
-                                width=0.6
+                                width=0.5
                             ))
                             
-                            fig.update_layout(
-                                xaxis_title="Win Rate (%)",
-                                yaxis_title="Symbol",
-                                height=400,
-                                plot_bgcolor='white',
-                                paper_bgcolor='white',
-                                showlegend=False,
-                                xaxis=dict(
-                                    showgrid=True,
-                                    gridwidth=1,
-                                    gridcolor='rgba(128,128,128,0.2)',
-                                    range=[0, 100]
-                                ),
-                                yaxis=dict(
-                                    showgrid=True,
-                                    gridwidth=1,
-                                    gridcolor='rgba(128,128,128,0.2)'
-                                )
-                            )
+                            layout = get_chart_layout()
+                            layout['xaxis_title'] = "Win Rate (%)"
+                            layout['yaxis_title'] = "Symbol"
+                            layout['height'] = 400
+                            layout['showlegend'] = False
+                            layout['xaxis']['range'] = [0, 100]
+                            
+                            fig.update_layout(**layout)
                             
                             st.plotly_chart(fig, use_container_width=True)
                 
@@ -1271,28 +1274,17 @@ elif page == "📊 Analytics":
                         name='Drawdown',
                         line=dict(color='#ff1744', width=2),
                         fill='tozeroy',
-                        fillcolor='rgba(255, 23, 68, 0.2)'
+                        fillcolor='rgba(255, 23, 68, 0.3)'
                     ))
                     
-                    fig.update_layout(
-                        xaxis_title="Trade Number",
-                        yaxis_title="Drawdown ($)",
-                        height=400,
-                        plot_bgcolor='white',
-                        paper_bgcolor='white',
-                        showlegend=False,
-                        xaxis=dict(
-                            showgrid=True,
-                            gridwidth=1,
-                            gridcolor='rgba(128,128,128,0.2)',
-                            dtick=1
-                        ),
-                        yaxis=dict(
-                            showgrid=True,
-                            gridwidth=1,
-                            gridcolor='rgba(128,128,128,0.2)'
-                        )
-                    )
+                    layout = get_chart_layout()
+                    layout['xaxis_title'] = "Trade Number"
+                    layout['yaxis_title'] = "Drawdown ($)"
+                    layout['height'] = 400
+                    layout['showlegend'] = False
+                    layout['xaxis']['dtick'] = 1
+                    
+                    fig.update_layout(**layout)
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
@@ -1321,12 +1313,12 @@ elif page == "📊 Analytics":
                                 hole=.4
                             )])
                             
-                            fig.update_layout(
-                                title="Trade Count by Outcome",
-                                height=400,
-                                plot_bgcolor='white',
-                                paper_bgcolor='white'
-                            )
+                            layout = get_chart_layout("Trade Count by Outcome")
+                            layout['height'] = 400
+                            layout['showlegend'] = True
+                            layout['legend'] = dict(font=dict(color='white'))
+                            
+                            fig.update_layout(**layout)
                             
                             st.plotly_chart(fig, use_container_width=True)
                         
@@ -1341,28 +1333,16 @@ elif page == "📊 Analytics":
                                 x=outcome_pnl.index,
                                 y=outcome_pnl.values,
                                 marker=dict(color=colors),
-                                width=0.6
+                                width=0.5
                             ))
                             
-                            fig.update_layout(
-                                title="Total P&L by Outcome",
-                                xaxis_title="Outcome",
-                                yaxis_title="P&L ($)",
-                                height=400,
-                                plot_bgcolor='white',
-                                paper_bgcolor='white',
-                                showlegend=False,
-                                xaxis=dict(
-                                    showgrid=True,
-                                    gridwidth=1,
-                                    gridcolor='rgba(128,128,128,0.2)'
-                                ),
-                                yaxis=dict(
-                                    showgrid=True,
-                                    gridwidth=1,
-                                    gridcolor='rgba(128,128,128,0.2)'
-                                )
-                            )
+                            layout = get_chart_layout("Total P&L by Outcome")
+                            layout['xaxis_title'] = "Outcome"
+                            layout['yaxis_title'] = "P&L ($)"
+                            layout['height'] = 400
+                            layout['showlegend'] = False
+                            
+                            fig.update_layout(**layout)
                             
                             st.plotly_chart(fig, use_container_width=True)
                 
@@ -1383,11 +1363,12 @@ elif page == "📊 Analytics":
                                 hole=.4
                             )])
                             
-                            fig.update_layout(
-                                height=400,
-                                plot_bgcolor='white',
-                                paper_bgcolor='white'
-                            )
+                            layout = get_chart_layout()
+                            layout['height'] = 400
+                            layout['showlegend'] = True
+                            layout['legend'] = dict(font=dict(color='white'))
+                            
+                            fig.update_layout(**layout)
                             
                             st.plotly_chart(fig, use_container_width=True)
                         
@@ -1405,27 +1386,16 @@ elif page == "📊 Analytics":
                                 x=strategy_pnl.values,
                                 orientation='h',
                                 marker=dict(color=colors),
-                                width=0.6
+                                width=0.5
                             ))
                             
-                            fig.update_layout(
-                                xaxis_title="Total P&L ($)",
-                                yaxis_title="Strategy",
-                                height=400,
-                                plot_bgcolor='white',
-                                paper_bgcolor='white',
-                                showlegend=False,
-                                xaxis=dict(
-                                    showgrid=True,
-                                    gridwidth=1,
-                                    gridcolor='rgba(128,128,128,0.2)'
-                                ),
-                                yaxis=dict(
-                                    showgrid=True,
-                                    gridwidth=1,
-                                    gridcolor='rgba(128,128,128,0.2)'
-                                )
-                            )
+                            layout = get_chart_layout()
+                            layout['xaxis_title'] = "Total P&L ($)"
+                            layout['yaxis_title'] = "Strategy"
+                            layout['height'] = 400
+                            layout['showlegend'] = False
+                            
+                            fig.update_layout(**layout)
                             
                             st.plotly_chart(fig, use_container_width=True)
                         
@@ -1476,27 +1446,16 @@ elif page == "📊 Analytics":
                                     x=emotion_performance.values,
                                     orientation='h',
                                     marker=dict(color=colors),
-                                    width=0.6
+                                    width=0.5
                                 ))
                                 
-                                fig.update_layout(
-                                    xaxis_title="Average P&L ($)",
-                                    yaxis_title="Emotional State",
-                                    height=400,
-                                    plot_bgcolor='white',
-                                    paper_bgcolor='white',
-                                    showlegend=False,
-                                    xaxis=dict(
-                                        showgrid=True,
-                                        gridwidth=1,
-                                        gridcolor='rgba(128,128,128,0.2)'
-                                    ),
-                                    yaxis=dict(
-                                        showgrid=True,
-                                        gridwidth=1,
-                                        gridcolor='rgba(128,128,128,0.2)'
-                                    )
-                                )
+                                layout = get_chart_layout()
+                                layout['xaxis_title'] = "Average P&L ($)"
+                                layout['yaxis_title'] = "Emotional State"
+                                layout['height'] = 400
+                                layout['showlegend'] = False
+                                
+                                fig.update_layout(**layout)
                                 
                                 st.plotly_chart(fig, use_container_width=True)
                     
@@ -1522,24 +1481,13 @@ elif page == "📊 Analytics":
                                     )
                                 ))
                                 
-                                fig.update_layout(
-                                    xaxis_title="Confidence Level",
-                                    yaxis_title="P&L ($)",
-                                    height=400,
-                                    plot_bgcolor='white',
-                                    paper_bgcolor='white',
-                                    showlegend=False,
-                                    xaxis=dict(
-                                        showgrid=True,
-                                        gridwidth=1,
-                                        gridcolor='rgba(128,128,128,0.2)'
-                                    ),
-                                    yaxis=dict(
-                                        showgrid=True,
-                                        gridwidth=1,
-                                        gridcolor='rgba(128,128,128,0.2)'
-                                    )
-                                )
+                                layout = get_chart_layout()
+                                layout['xaxis_title'] = "Confidence Level"
+                                layout['yaxis_title'] = "P&L ($)"
+                                layout['height'] = 400
+                                layout['showlegend'] = False
+                                
+                                fig.update_layout(**layout)
                                 
                                 st.plotly_chart(fig, use_container_width=True)
                     
@@ -1559,31 +1507,23 @@ elif page == "📊 Analytics":
                         
                         colors = ['#00c853' if x > 0 else '#ff1744' for x in daily_pnl.values]
                         
+                        # Calculate bar width based on number of days
+                        bar_width = 0.3 if len(daily_pnl) > 30 else 0.6
+                        
                         fig.add_trace(go.Bar(
                             x=daily_pnl.index,
                             y=daily_pnl.values,
                             marker=dict(color=colors),
-                            width=0.8
+                            width=bar_width
                         ))
                         
-                        fig.update_layout(
-                            xaxis_title="Date",
-                            yaxis_title="Daily P&L ($)",
-                            height=400,
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                            showlegend=False,
-                            xaxis=dict(
-                                showgrid=True,
-                                gridwidth=1,
-                                gridcolor='rgba(128,128,128,0.2)'
-                            ),
-                            yaxis=dict(
-                                showgrid=True,
-                                gridwidth=1,
-                                gridcolor='rgba(128,128,128,0.2)'
-                            )
-                        )
+                        layout = get_chart_layout()
+                        layout['xaxis_title'] = "Date"
+                        layout['yaxis_title'] = "Daily P&L ($)"
+                        layout['height'] = 400
+                        layout['showlegend'] = False
+                        
+                        fig.update_layout(**layout)
                         
                         st.plotly_chart(fig, use_container_width=True)
             else:
@@ -1635,6 +1575,13 @@ elif page == "⚙️ Settings":
                 if all_trades:
                     df = pd.DataFrame(all_trades)
                     df['_id'] = df['_id'].astype(str)
+                    
+                    # Format dates for export
+                    if 'entry_date' in df.columns:
+                        df['entry_date'] = df['entry_date'].apply(format_date_display)
+                    if 'exit_date' in df.columns:
+                        df['exit_date'] = df['exit_date'].apply(format_date_display)
+                    
                     csv = df.to_csv(index=False)
                     st.download_button(
                         label="💾 Download Backup",
@@ -1687,11 +1634,12 @@ elif page == "⚙️ Settings":
         with col1:
             st.markdown("#### 💱 Display Settings")
             currency = st.selectbox("Default Currency", ["USD", "EUR", "GBP", "JPY", "BTC", "ETH"])
-            date_format = st.selectbox("Date Format", ["MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD"])
+            date_format = st.selectbox("Date Format", ["DD-MM-YYYY", "MM/DD/YYYY", "YYYY-MM-DD"])
             decimal_places = st.number_input("Decimal Places", min_value=0, max_value=8, value=2)
         
         with col2:
             st.markdown("#### 📊 Chart Settings")
+            chart_theme = st.selectbox("Chart Theme", ["Dark", "Light"])
             default_chart_height = st.number_input("Chart Height (px)", min_value=200, max_value=1000, value=400, step=50)
             show_grid = st.checkbox("Show Grid Lines", value=True)
         
