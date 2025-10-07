@@ -94,11 +94,10 @@ st.markdown("""
     }
     
     /* Red header styling for dataframe */
-    .dataframe-header-red th {
+    thead tr th {
         background-color: #ff1744 !important;
         color: white !important;
         font-weight: 600 !important;
-        text-transform: capitalize !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -864,6 +863,9 @@ elif page == "📉 Trade History":
         df = pd.DataFrame(docs)
         df = migrate_old_data(df)
         
+        # Store original _id mapping
+        id_mapping = df['_id'].to_dict()
+        
         # Display summary
         st.markdown(f"**Found {len(df)} trades**")
         
@@ -882,55 +884,49 @@ elif page == "📉 Trade History":
         )
         
         if selected_cols:
-            # Editable dataframe
-            edit_df = df[selected_cols + ['_id']].copy()
+            # Create editable dataframe with proper types
+            edit_df = df[selected_cols].copy()
             
-            # Rename columns with capitalized headers
-            column_config = {}
+            # Convert types for data_editor compatibility
+            for col in edit_df.columns:
+                if col == 'entry_date':
+                    # Convert to string for editing
+                    edit_df[col] = pd.to_datetime(edit_df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                elif edit_df[col].dtype == 'object':
+                    # Ensure string columns are proper strings
+                    edit_df[col] = edit_df[col].astype(str).replace('nan', '')
+                elif pd.api.types.is_numeric_dtype(edit_df[col]):
+                    # Fill NaN in numeric columns with 0
+                    edit_df[col] = edit_df[col].fillna(0)
+            
+            # Add index as a display column
+            edit_df.insert(0, 'Row', range(len(edit_df)))
+            
+            # Column configuration with red headers
+            column_config = {
+                'Row': st.column_config.NumberColumn('Row', disabled=True, width="small")
+            }
+            
             for col in selected_cols:
                 capitalized = capitalize_headers(col)
-                column_config[col] = st.column_config.Column(
-                    capitalized,
-                    width="medium",
-                )
-            
-            # Special configs for specific columns
-            if 'entry_date' in selected_cols:
-                column_config['entry_date'] = st.column_config.DatetimeColumn(
-                    "Entry Date",
-                    format="DD/MM/YYYY HH:mm"
-                )
-            
-            if 'pnl' in selected_cols:
-                column_config['pnl'] = st.column_config.NumberColumn(
-                    "P&L",
-                    format="$%.2f"
-                )
-            
-            if 'entry_price' in selected_cols:
-                column_config['entry_price'] = st.column_config.NumberColumn(
-                    "Entry Price",
-                    format="$%.2f"
-                )
-            
-            if 'exit_price' in selected_cols:
-                column_config['exit_price'] = st.column_config.NumberColumn(
-                    "Exit Price",
-                    format="$%.2f"
-                )
-            
-            # Hide _id column but keep it for editing
-            column_config['_id'] = None
-            
-            # Add red header styling with markdown
-            st.markdown("""
-            <style>
-                thead tr th {
-                    background-color: #ff1744 !important;
-                    color: white !important;
-                }
-            </style>
-            """, unsafe_allow_html=True)
+                
+                if col == 'entry_date':
+                    column_config[col] = st.column_config.TextColumn(
+                        capitalized,
+                        help="Format: YYYY-MM-DD HH:MM:SS"
+                    )
+                elif col in ['pnl', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount']:
+                    column_config[col] = st.column_config.NumberColumn(
+                        capitalized,
+                        format="%.2f"
+                    )
+                elif col in ['quantity', 'risk_reward_ratio']:
+                    column_config[col] = st.column_config.NumberColumn(
+                        capitalized,
+                        format="%.4f"
+                    )
+                else:
+                    column_config[col] = st.column_config.TextColumn(capitalized)
             
             # Editable data editor
             edited_df = st.data_editor(
@@ -938,7 +934,7 @@ elif page == "📉 Trade History":
                 column_config=column_config,
                 use_container_width=True,
                 hide_index=True,
-                num_rows="dynamic",
+                num_rows="fixed",
                 height=450,
                 key="trade_editor"
             )
@@ -947,19 +943,44 @@ elif page == "📉 Trade History":
             col1, col2, col3 = st.columns([2, 1, 2])
             with col2:
                 if st.button("💾 Save Changes", type="primary", use_container_width=True):
-                    # Update MongoDB with edited data
-                    for idx, row in edited_df.iterrows():
-                        if '_id' in row:
-                            trade_id = row['_id']
-                            update_data = row.drop('_id').to_dict()
-                            # Remove None values
-                            update_data = {k: v for k, v in update_data.items() if pd.notna(v)}
-                            collection.update_one(
-                                {"_id": trade_id},
-                                {"$set": update_data}
-                            )
-                    st.success("✅ Changes saved successfully!")
-                    st.rerun()
+                    try:
+                        # Update MongoDB with edited data
+                        for idx in range(len(edited_df)):
+                            # Get the original MongoDB _id
+                            original_idx = edited_df.iloc[idx]['Row']
+                            trade_id = id_mapping[original_idx]
+                            
+                            # Get updated row data
+                            row = edited_df.iloc[idx].drop('Row')
+                            update_data = {}
+                            
+                            for col in row.index:
+                                value = row[col]
+                                
+                                # Skip empty strings
+                                if value == '' or (isinstance(value, float) and pd.isna(value)):
+                                    continue
+                                
+                                # Convert entry_date back to datetime
+                                if col == 'entry_date':
+                                    try:
+                                        update_data[col] = datetime.strptime(str(value), '%Y-%m-%d %H:%M:%S').isoformat()
+                                    except:
+                                        continue
+                                else:
+                                    update_data[col] = value
+                            
+                            # Update in MongoDB
+                            if update_data:
+                                collection.update_one(
+                                    {"_id": trade_id},
+                                    {"$set": update_data}
+                                )
+                        
+                        st.success("✅ Changes saved successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error saving changes: {str(e)}")
             
             st.divider()
             
@@ -1020,14 +1041,16 @@ elif page == "📉 Trade History":
             
             with col2:
                 if st.button("🗑️ Delete All Filtered", type="secondary", use_container_width=True):
-                    st.warning("⚠️ Click 'Confirm' to delete all filtered trades")
+                    st.session_state['confirm_bulk_delete'] = True
             
             with col3:
                 # Confirmation for bulk delete
-                if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
-                    collection.delete_many(query)
-                    st.success("✅ Filtered trades deleted!")
-                    st.rerun()
+                if st.session_state.get('confirm_bulk_delete', False):
+                    if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
+                        collection.delete_many(query)
+                        st.success("✅ Filtered trades deleted!")
+                        st.session_state['confirm_bulk_delete'] = False
+                        st.rerun()
                     
     else:
         st.info("📭 No trades found with the selected filters")
