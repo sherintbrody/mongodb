@@ -1054,7 +1054,7 @@ elif page == "Trade History":
             elif col in ['quantity', 'risk_reward_ratio']:
                 column_config[col] = st.column_config.NumberColumn(
                     capitalized,
-                    format="%.4f",
+                    format="%.2f",
                     width="medium"
                 )
             else:
