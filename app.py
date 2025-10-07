@@ -126,7 +126,7 @@ collection = db[st.secrets["mongo"]["COLLECTION"]]
 @st.cache_data
 def get_symbol_lists():
     """Get all symbol lists - cached"""
-    indices = ["NAS100", "US30", "SP500", "US100", "DJ30", "GER40", "UK100", "JPN225", "AUS200"]
+    indices = ["NAS100", "US30", "SP500", "US100", "GER40", "UK100", "JPN225", "AUS200"]
     forex_majors = ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"]
     forex_minors = ["EUR/GBP", "EUR/AUD", "EUR/CAD", "EUR/JPY", "GBP/JPY", "GBP/AUD", "AUD/JPY", "AUD/CAD", "NZD/JPY"]
     commodities = ["GOLD", "SILVER", "OIL", "NATGAS", "COPPER"]
@@ -960,7 +960,7 @@ elif page == "Trade History":
     with st.expander("🔍 Filters", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            filter_symbol = st.text_input("Symbol", placeholder="All","all_symbols")
+            filter_symbol = st.text_input("Symbol", placeholder="All","NAS100", "US30", "SP500", "GOLD")
         with col2:
             filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
         with col3:
