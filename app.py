@@ -379,7 +379,7 @@ with st.sidebar:
         menu_title=None,
         options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Analytics", "Settings"],
         icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "bar-chart-line", "gear"],
-        menu_icon="cast",
+        menu_icon=None,
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "#0e1117"},
@@ -397,7 +397,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("🔄 Refresh Data", width="stretch"):
         st.cache_data.clear()
         increment_data_version()
         st.rerun()
@@ -535,7 +535,7 @@ if page == "Dashboard":
             
             fig.update_layout(**layout)
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
             st.divider()
             
@@ -582,7 +582,7 @@ if page == "Dashboard":
                 
                 fig.update_layout(**layout)
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             
             with col2:
                 # Trade Outcome Distribution
@@ -612,7 +612,7 @@ if page == "Dashboard":
                         
                         fig.update_layout(**layout)
                         
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     else:
                         st.info("No outcome data available")
                 else:
@@ -634,7 +634,7 @@ if page == "Dashboard":
                         
                         fig.update_layout(**layout)
                         
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
         else:
             st.info("📝 No closed trades with P&L data. Start trading and close positions to see your equity curve!")
         
@@ -667,7 +667,6 @@ if page == "Dashboard":
             
             st.dataframe(
                 recent_trades,
-                use_container_width=True,
                 hide_index=True,
                 column_config={
                     "entry_date": st.column_config.TextColumn("Entry Date"),
@@ -782,7 +781,7 @@ elif page == "New Trade":
         
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
-            submitted = st.form_submit_button("💾 Save Trade", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("💾 Save Trade", width="stretch", type="primary")
         
         if submitted:
             if symbol and quantity and entry_price:
@@ -910,7 +909,7 @@ elif page == "Open Positions":
                             
                             col_a, col_b = st.columns(2)
                             with col_a:
-                                if st.form_submit_button("✅ Close", type="primary", use_container_width=True):
+                                if st.form_submit_button("✅ Close", type="primary", width="stretch"):
                                     update_data = {
                                         "exit_price": float(exit_price),
                                         "exit_fee": float(exit_fee),
@@ -934,7 +933,7 @@ elif page == "Open Positions":
                                         st.error("❌ Failed to update position")
                             
                             with col_b:
-                                if st.form_submit_button("🗑️ Delete", type="secondary", use_container_width=True):
+                                if st.form_submit_button("🗑️ Delete", type="secondary", width="stretch"):
                                     result = collection.delete_one({"_id": trade['_id']})
                                     if result.deleted_count > 0:
                                         st.success("🗑️ Trade deleted!")
@@ -1066,7 +1065,6 @@ elif page == "Trade History":
         edited_df = st.data_editor(
             edit_df,
             column_config=column_config,
-            use_container_width=True,
             hide_index=True,
             num_rows="fixed",
             height=450,
@@ -1076,7 +1074,7 @@ elif page == "Trade History":
         # Save changes button
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
-            if st.button("💾 Save Changes", type="primary", use_container_width=True):
+            if st.button("💾 Save Changes", type="primary", width="stretch"):
                 try:
                     success_count = 0
                     # Update MongoDB with edited data
@@ -1161,7 +1159,7 @@ elif page == "Trade History":
         
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
+            if st.button("🗑️ Delete Selected", type="secondary", width="stretch"):
                 if selected_trade_idx is not None:
                     trade_id = df_ids[selected_trade_idx]
                     result = collection.delete_one({"_id": trade_id})
@@ -1192,17 +1190,17 @@ elif page == "Trade History":
                 data=csv,
                 file_name=f"trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
                 type="primary"
             )
         
         with col2:
-            if st.button("🗑️ Delete All Filtered", type="secondary", use_container_width=True):
+            if st.button("🗑️ Delete All Filtered", type="secondary", width="stretch"):
                 st.session_state['confirm_bulk_delete'] = True
         
         with col3:
             if st.session_state.get('confirm_bulk_delete', False):
-                if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
+                if st.button("⚠️ Confirm Bulk Delete", type="secondary", width="stretch"):
                     result = collection.delete_many(query)
                     st.success(f"✅ Deleted {result.deleted_count} trade(s)!")
                     st.session_state['confirm_bulk_delete'] = False
@@ -1285,7 +1283,7 @@ elif page == "Analytics":
                         
                         fig.update_layout(**layout)
                         
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     
                     st.divider()
                     
@@ -1317,7 +1315,7 @@ elif page == "Analytics":
                         
                         fig.update_layout(**layout)
                         
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     
                     with col2:
                         st.markdown("#### 🎯 Win Rate by Symbol")
@@ -1357,7 +1355,7 @@ elif page == "Analytics":
                             
                             fig.update_layout(**layout)
                             
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
                 
                 with tab2:
                     st.markdown("### Risk Analysis")
@@ -1412,7 +1410,7 @@ elif page == "Analytics":
                     
                     fig.update_layout(**layout)
                     
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                     
                     st.divider()
                     
@@ -1446,7 +1444,7 @@ elif page == "Analytics":
                             
                             fig.update_layout(**layout)
                             
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
                         
                         with col2:
                             outcome_pnl = trades_with_pnl.groupby('outcome')['pnl'].sum()
@@ -1470,400 +1468,10 @@ elif page == "Analytics":
                             
                             fig.update_layout(**layout)
                             
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
                 
                 with tab3:
                     if 'strategy' in trades_with_pnl.columns:
                         st.markdown("### Strategy Analysis")
                         
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("#### 📊 Trades by Strategy")
-                            
-                            strategy_counts = trades_with_pnl['strategy'].value_counts()
-                            
-                            fig = go.Figure(data=[go.Pie(
-                                labels=strategy_counts.index,
-                                values=strategy_counts.values,
-                                hole=.4
-                            )])
-                            
-                            layout = get_chart_layout()
-                            layout['height'] = 400
-                            layout['showlegend'] = True
-                            layout['legend'] = dict(font=dict(color='white'))
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        with col2:
-                            st.markdown("#### 💰 P&L by Strategy")
-                            
-                            strategy_pnl = trades_with_pnl.groupby('strategy')['pnl'].sum().sort_values()
-                            
-                            fig = go.Figure()
-                            
-                            colors = ['#00c853' if x > 0 else '#ff1744' for x in strategy_pnl.values]
-                            
-                            fig.add_trace(go.Bar(
-                                y=strategy_pnl.index,
-                                x=strategy_pnl.values,
-                                orientation='h',
-                                marker=dict(color=colors),
-                                width=0.5
-                            ))
-                            
-                            layout = get_chart_layout()
-                            layout['xaxis_title'] = "Total P&L ($)"
-                            layout['yaxis_title'] = "Strategy"
-                            layout['height'] = 400
-                            layout['showlegend'] = False
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        st.divider()
-                        
-                        # Strategy performance table
-                        st.markdown("#### 📋 Strategy Performance Table")
-                        
-                        strategy_stats = []
-                        for strategy in trades_with_pnl['strategy'].unique():
-                            strategy_trades = trades_with_pnl[trades_with_pnl['strategy'] == strategy]
-                            wins = len(strategy_trades[strategy_trades['pnl'] > 0])
-                            total = len(strategy_trades)
-                            
-                            strategy_stats.append({
-                                'Strategy': strategy,
-                                'Total Trades': total,
-                                'Wins': wins,
-                                'Losses': total - wins,
-                                'Win Rate (%)': f"{(wins/total * 100):.1f}" if total > 0 else "0",
-                                'Total P&L ($)': f"{strategy_trades['pnl'].sum():.2f}",
-                                'Avg P&L ($)': f"{strategy_trades['pnl'].mean():.2f}"
-                            })
-                        
-                        strategy_df = pd.DataFrame(strategy_stats)
-                        st.dataframe(strategy_df, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("📝 No strategy data available")
-                
-                with tab4:
-                    st.markdown("### Behavioral Analysis")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if 'emotion' in trades_with_pnl.columns:
-                            st.markdown("#### 😊 P&L by Emotional State")
-                            
-                            emotion_performance = trades_with_pnl.groupby('emotion')['pnl'].mean().sort_values()
-                            
-                            if not emotion_performance.empty:
-                                fig = go.Figure()
-                                
-                                colors = ['#00c853' if x > 0 else '#ff1744' for x in emotion_performance.values]
-                                
-                                fig.add_trace(go.Bar(
-                                    y=emotion_performance.index,
-                                    x=emotion_performance.values,
-                                    orientation='h',
-                                    marker=dict(color=colors),
-                                    width=0.5
-                                ))
-                                
-                                layout = get_chart_layout()
-                                layout['xaxis_title'] = "Average P&L ($)"
-                                layout['yaxis_title'] = "Emotional State"
-                                layout['height'] = 400
-                                layout['showlegend'] = False
-                                
-                                fig.update_layout(**layout)
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        if 'confidence_level' in trades_with_pnl.columns:
-                            st.markdown("#### 🎯 Confidence vs P&L")
-                            
-                            confidence_data = trades_with_pnl[['confidence_level', 'pnl']].dropna()
-                            
-                            if not confidence_data.empty:
-                                fig = go.Figure()
-                                
-                                colors = ['#00c853' if x > 0 else '#ff1744' for x in confidence_data['pnl']]
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=confidence_data['confidence_level'],
-                                    y=confidence_data['pnl'],
-                                    mode='markers',
-                                    marker=dict(
-                                        size=10,
-                                        color=colors,
-                                        line=dict(width=1, color='white')
-                                    )
-                                ))
-                                
-                                layout = get_chart_layout()
-                                layout['xaxis_title'] = "Confidence Level"
-                                layout['yaxis_title'] = "P&L ($)"
-                                layout['height'] = 400
-                                layout['showlegend'] = False
-                                
-                                fig.update_layout(**layout)
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.divider()
-                    
-                    # Time-based analysis
-                    if 'entry_date' in trades_with_pnl.columns:
-                        st.markdown("#### 📅 Performance Over Time")
-                        
-                        # Convert entry_date to datetime
-                        trades_with_pnl['entry_date'] = pd.to_datetime(trades_with_pnl['entry_date'])
-                        
-                        # Group by day
-                        daily_pnl = trades_with_pnl.groupby(trades_with_pnl['entry_date'].dt.date)['pnl'].sum()
-                        
-                        fig = go.Figure()
-                        
-                        colors = ['#00c853' if x > 0 else '#ff1744' for x in daily_pnl.values]
-                        
-                        # Calculate bar width based on number of days
-                        bar_width = 0.3 if len(daily_pnl) > 30 else 0.6
-                        
-                        fig.add_trace(go.Bar(
-                            x=daily_pnl.index,
-                            y=daily_pnl.values,
-                            marker=dict(color=colors),
-                            width=bar_width
-                        ))
-                        
-                        layout = get_chart_layout()
-                        layout['xaxis_title'] = "Date"
-                        layout['yaxis_title'] = "Daily P&L ($)"
-                        layout['height'] = 400
-                        layout['showlegend'] = False
-                        
-                        fig.update_layout(**layout)
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("📝 No trades with P&L data. Add P&L to trades to see analytics.")
-        else:
-            st.info("📝 No closed trades available for analysis")
-    else:
-        st.info("📝 No data available for analytics")
-
-# --- Settings Page ---
-elif page == "Settings":
-    st.title("⚙️ Settings")
-    st.markdown("### Manage your trading journal")
-    
-    tab1, tab2, tab3 = st.tabs(["💾 Database", "🎨 Preferences", "ℹ️ About"])
-    
-    with tab1:
-        st.markdown("### Database Management")
-        
-        # Database stats
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_trades = collection.count_documents({})
-            st.metric("📊 Total Records", total_trades)
-        
-        with col2:
-            open_trades = collection.count_documents({"status": "OPEN"})
-            st.metric("📂 Open Trades", open_trades)
-        
-        with col3:
-            closed_trades = collection.count_documents({"status": "CLOSED"})
-            st.metric("✅ Closed Trades", closed_trades)
-        
-        with col4:
-            unique_symbols = len(collection.distinct("symbol"))
-            st.metric("📈 Unique Symbols", unique_symbols)
-        
-        st.divider()
-        
-        # Backup
-        st.markdown("### 📥 Backup & Export")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("📥 Backup Database", use_container_width=True, type="primary"):
-                all_trades = load_all_trades()
-                if all_trades:
-                    df = pd.DataFrame(all_trades)
-                    df['_id'] = df['_id'].astype(str)
-                    
-                    # Format dates for export
-                    if 'entry_date' in df.columns:
-                        df['entry_date'] = df['entry_date'].apply(format_date_display)
-                    if 'exit_date' in df.columns:
-                        df['exit_date'] = df['exit_date'].apply(format_date_display)
-                    
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="💾 Download Backup",
-                        data=csv,
-                        file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No data to backup")
-        
-        st.divider()
-        
-        # Danger Zone
-        st.markdown("### ⚠️ Danger Zone")
-        
-        with st.expander("🗑️ Delete Operations", expanded=False):
-            st.warning("⚠️ These actions cannot be undone!")
-            
-            st.markdown("#### Delete All Trades")
-            if st.checkbox("✅ I understand this will delete ALL trades permanently"):
-                if st.button("🗑️ Confirm Delete All Trades", type="secondary"):
-                    collection.delete_many({})
-                    st.success("✅ All trades deleted")
-                    st.cache_data.clear()
-                    increment_data_version()
-                    st.rerun()
-            
-            st.divider()
-            
-            st.markdown("#### Delete All Open Trades")
-            if st.checkbox("✅ I understand this will delete all OPEN trades"):
-                if st.button("🗑️ Confirm Delete Open Trades", type="secondary"):
-                    collection.delete_many({"status": "OPEN"})
-                    st.success("✅ Open trades deleted")
-                    st.cache_data.clear()
-                    increment_data_version()
-                    st.rerun()
-            
-            st.divider()
-            
-            st.markdown("#### Delete All Closed Trades")
-            if st.checkbox("✅ I understand this will delete all CLOSED trades"):
-                if st.button("🗑️ Confirm Delete Closed Trades", type="secondary"):
-                    collection.delete_many({"status": "CLOSED"})
-                    st.success("✅ Closed trades deleted")
-                    st.cache_data.clear()
-                    increment_data_version()
-                    st.rerun()
-    
-    with tab2:
-        st.markdown("### Preferences")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 💱 Display Settings")
-            currency = st.selectbox("Default Currency", ["USD", "EUR", "GBP", "JPY", "BTC", "ETH"])
-            date_format = st.selectbox("Date Format", ["DD-MM-YYYY", "MM/DD/YYYY", "YYYY-MM-DD"])
-            decimal_places = st.number_input("Decimal Places", min_value=0, max_value=8, value=2)
-        
-        with col2:
-            st.markdown("#### 📊 Chart Settings")
-            chart_theme = st.selectbox("Chart Theme", ["Dark", "Light"])
-            default_chart_height = st.number_input("Chart Height (px)", min_value=200, max_value=1000, value=400, step=50)
-            show_grid = st.checkbox("Show Grid Lines", value=True)
-        
-        st.divider()
-        
-        col1, col2, col3 = st.columns([2, 1, 2])
-        with col2:
-            if st.button("💾 Save Preferences", use_container_width=True, type="primary"):
-                st.success("✅ Preferences saved!")
-    
-    with tab3:
-        st.markdown("### About Trading Journal Pro")
-        
-        st.markdown("""
-        ## Trading Journal Pro v2.0
-        
-        **🚀 A comprehensive trading journal application**
-        
-        Built with modern technologies to help traders track, analyze, and improve their trading performance.
-        
-        **Version:** 2.0.0  
-        **Last Updated:** 2024
-        """)
-        
-        st.divider()
-        
-        st.markdown("### ✨ Features")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("""
-            - ✅ Track trades across multiple asset classes
-            - 📊 Advanced analytics and performance metrics
-            - 📈 Equity curve visualization with markers
-            - 🎯 Win/Loss/TSL/BE outcome tracking
-            - 💰 Manual P&L entry
-            - ⚠️ Risk management tools
-            """)
-        
-        with col2:
-            st.markdown("""
-            - 🎯 Strategy analysis
-            - 🧠 Behavioral tracking
-            - 📥 Data export and backup
-            - 🗑️ Flexible delete options
-            - ✏️ Editable trade history
-            - 🔄 Real-time data sync
-            """)
-        
-        st.divider()
-        
-        st.markdown("### 🛠️ Tech Stack")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.info("**Frontend**\n\nStreamlit")
-        
-        with col2:
-            st.info("**Database**\n\nMongoDB")
-        
-        with col3:
-            st.info("**Charts**\n\nPlotly")
-        
-        with col4:
-            st.info("**Data**\n\nPandas")
-        
-        st.divider()
-        
-        st.markdown("### 💡 Tips for Success")
-        st.info("""
-        **1. Consistency is Key** - Log every trade, no matter how small  
-        **2. Be Honest** - Record your emotions and mistakes  
-        **3. Review Regularly** - Analyze your stats weekly  
-        **4. Set Goals** - Use data to improve your win rate  
-        **5. Learn from Losses** - They're your best teachers
-        """)
-
-# Footer
-st.markdown("---")
-st.markdown(
-    f"""
-    <div style='text-align: center; padding: 20px;'>
-        <p style='color: #888; margin: 0;'>
-            <strong>Trading Journal Pro v2.0</strong> © 2024 | 
-            <span style='color: #ff1744;'>Trade Responsibly</span>
-        </p>
-        <p style='color: #aaa; font-size: 0.9em; margin-top: 10px;'>
-            💡 Remember: Past performance does not guarantee future results
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+                        col1,
