@@ -960,7 +960,7 @@ elif page == "Trade History":
     with st.expander("🔍 Filters", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            filter_symbol = st.selectbox("Symbol", ["All"] + ALL_SYMBOLS)
+            filter_symbol = st.text_input("Symbol", placeholder="All")
         with col2:
             filter_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
         with col3:
