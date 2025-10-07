@@ -377,8 +377,8 @@ with st.sidebar:
     
     selected = option_menu(
         menu_title=None,
-        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Analytics", "Settings"],
-        icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "bar-chart-line", "gear"],
+        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Calendar", "Analytics", "Settings"],
+        icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "calendar3", "bar-chart-line", "gear"],
         menu_icon="cast",
         default_index=0,
         styles={
@@ -1212,7 +1212,221 @@ elif page == "Trade History":
                 
     else:
         st.info("📭 No trades found with the selected filters")
-
+# --- Calendar Page ---
+elif page == "Calendar":
+    st.title("📅 Trading Calendar")
+    st.markdown("### Visual overview of your trading activity")
+    
+    import calendar
+    from datetime import datetime, date, timedelta
+    
+    # Load trades
+    docs = load_all_trades()
+    
+    if docs:
+        df = pd.DataFrame(docs)
+        df = migrate_old_data(df)
+        
+        # Filter only closed trades with dates
+        if 'entry_date' in df.columns:
+            df['entry_date'] = pd.to_datetime(df['entry_date'], errors='coerce')
+            df = df[df['entry_date'].notna()]
+        
+        if not df.empty:
+            # Month/Year selector
+            col1, col2, col3 = st.columns([1, 1, 3])
+            
+            with col1:
+                selected_year = st.selectbox(
+                    "Year",
+                    options=sorted(df['entry_date'].dt.year.unique(), reverse=True),
+                    index=0
+                )
+            
+            with col2:
+                month_names = ['January', 'February', 'March', 'April', 'May', 'June',
+                               'July', 'August', 'September', 'October', 'November', 'December']
+                current_month = datetime.now().month
+                selected_month_name = st.selectbox(
+                    "Month",
+                    options=month_names,
+                    index=current_month - 1
+                )
+                selected_month = month_names.index(selected_month_name) + 1
+            
+            # Filter data for selected month
+            month_df = df[(df['entry_date'].dt.year == selected_year) & 
+                         (df['entry_date'].dt.month == selected_month)]
+            
+            # Calculate daily stats
+            daily_stats = {}
+            if not month_df.empty:
+                for _, trade in month_df.iterrows():
+                    day = trade['entry_date'].day
+                    if day not in daily_stats:
+                        daily_stats[day] = {
+                            'trades': 0,
+                            'wins': 0,
+                            'losses': 0,
+                            'pnl': 0,
+                            'symbols': []
+                        }
+                    
+                    daily_stats[day]['trades'] += 1
+                    
+                    if 'pnl' in trade and pd.notna(trade['pnl']):
+                        daily_stats[day]['pnl'] += trade['pnl']
+                        if trade['pnl'] > 0:
+                            daily_stats[day]['wins'] += 1
+                        elif trade['pnl'] < 0:
+                            daily_stats[day]['losses'] += 1
+                    
+                    if 'symbol' in trade and pd.notna(trade['symbol']):
+                        daily_stats[day]['symbols'].append(trade['symbol'])
+            
+            # Display calendar
+            st.markdown("---")
+            
+            # Get calendar structure
+            cal = calendar.monthcalendar(selected_year, selected_month)
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            
+            # Create calendar header
+            cols = st.columns(7)
+            for idx, day in enumerate(days):
+                with cols[idx]:
+                    st.markdown(f"<div style='text-align: center; font-weight: bold; color: #cfcfcf;'>{day[:3]}</div>", 
+                               unsafe_allow_html=True)
+            
+            # Display calendar days
+            for week in cal:
+                cols = st.columns(7)
+                for idx, day in enumerate(week):
+                    with cols[idx]:
+                        if day == 0:
+                            st.markdown("<div style='height: 120px;'></div>", unsafe_allow_html=True)
+                        else:
+                            # Check if we have data for this day
+                            if day in daily_stats:
+                                stats = daily_stats[day]
+                                
+                                # Determine background color based on P&L
+                                if stats['pnl'] > 0:
+                                    bg_color = "rgba(0, 200, 83, 0.2)"
+                                    border_color = "#00c853"
+                                    pnl_color = "#00c853"
+                                elif stats['pnl'] < 0:
+                                    bg_color = "rgba(255, 23, 68, 0.2)"
+                                    border_color = "#ff1744"
+                                    pnl_color = "#ff1744"
+                                else:
+                                    bg_color = "rgba(255, 167, 38, 0.2)"
+                                    border_color = "#ffa726"
+                                    pnl_color = "#ffa726"
+                                
+                                # Create day card
+                                st.markdown(f"""
+                                    <div style='
+                                        background: {bg_color};
+                                        border: 2px solid {border_color};
+                                        border-radius: 8px;
+                                        padding: 8px;
+                                        height: 120px;
+                                        margin: 2px;
+                                    '>
+                                        <div style='font-weight: bold; color: #cfcfcf;'>{day}</div>
+                                        <div style='font-size: 0.8em; margin-top: 5px;'>
+                                            <div>📊 {stats['trades']} trade(s)</div>
+                                            <div style='color: #00c853;'>✅ {stats['wins']} win(s)</div>
+                                            <div style='color: #ff1744;'>❌ {stats['losses']} loss(es)</div>
+                                            <div style='color: {pnl_color}; font-weight: bold;'>
+                                                P&L: ${stats['pnl']:.2f}
+                                            </div>
+                                        </div>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                            else:
+                                # Empty day (no trades)
+                                st.markdown(f"""
+                                    <div style='
+                                        background: rgba(128, 128, 128, 0.1);
+                                        border: 1px solid rgba(128, 128, 128, 0.3);
+                                        border-radius: 8px;
+                                        padding: 8px;
+                                        height: 120px;
+                                        margin: 2px;
+                                    '>
+                                        <div style='color: #808080;'>{day}</div>
+                                        <div style='font-size: 0.8em; color: #606060; margin-top: 30px; text-align: center;'>
+                                            No trades
+                                        </div>
+                                    </div>
+                                """, unsafe_allow_html=True)
+            
+            # Monthly Summary
+            st.markdown("---")
+            st.markdown("### 📊 Monthly Summary")
+            
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            
+            # Calculate monthly stats
+            month_total_trades = sum(stats['trades'] for stats in daily_stats.values())
+            month_total_wins = sum(stats['wins'] for stats in daily_stats.values())
+            month_total_losses = sum(stats['losses'] for stats in daily_stats.values())
+            month_total_pnl = sum(stats['pnl'] for stats in daily_stats.values())
+            month_win_rate = (month_total_wins / month_total_trades * 100) if month_total_trades > 0 else 0
+            month_trading_days = len(daily_stats)
+            
+            with col1:
+                st.metric("📅 Trading Days", month_trading_days)
+            
+            with col2:
+                st.metric("📊 Total Trades", month_total_trades)
+            
+            with col3:
+                st.metric("✅ Wins", month_total_wins)
+            
+            with col4:
+                st.metric("❌ Losses", month_total_losses)
+            
+            with col5:
+                st.metric("🎯 Win Rate", f"{month_win_rate:.1f}%")
+            
+            with col6:
+                pnl_color = "normal" if month_total_pnl >= 0 else "inverse"
+                st.metric("💰 Total P&L", f"${month_total_pnl:.2f}", delta_color=pnl_color)
+            
+            # Daily breakdown table
+            st.markdown("---")
+            st.markdown("### 📋 Daily Breakdown")
+            
+            if daily_stats:
+                daily_data = []
+                for day, stats in sorted(daily_stats.items()):
+                    daily_data.append({
+                        'Date': f"{selected_year}-{selected_month:02d}-{day:02d}",
+                        'Trades': stats['trades'],
+                        'Wins': stats['wins'],
+                        'Losses': stats['losses'],
+                        'P&L': f"${stats['pnl']:.2f}",
+                        'Symbols': ', '.join(set(stats['symbols']))[:50]  # Limit symbol string length
+                    })
+                
+                daily_df = pd.DataFrame(daily_data)
+                st.dataframe(
+                    daily_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "P&L": st.column_config.TextColumn("P&L"),
+                        "Symbols": st.column_config.TextColumn("Symbols Traded")
+                    }
+                )
+            
+        else:
+            st.info("📝 No trades with date information available")
+    else:
+        st.info("📝 No trades recorded yet")
 # --- Analytics Page ---
 elif page == "Analytics":
     st.title("📊 Trading Analytics")
