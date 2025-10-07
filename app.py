@@ -131,7 +131,7 @@ def get_symbol_lists():
     forex_minors = ["EUR/GBP", "EUR/AUD", "EUR/CAD", "EUR/JPY", "GBP/JPY", "GBP/AUD", "AUD/JPY", "AUD/CAD", "NZD/JPY"]
     commodities = ["GOLD", "SILVER", "OIL", "NATGAS", "COPPER"]
     crypto = ["BTC/USD", "ETH/USD", "BTC/USDT", "ETH/USDT", "XRP/USD", "SOL/USD"]
-    all_symbols = ["Custom"] + indices + forex_majors + forex_minors + commodities + crypto
+    all_symbols = indices + forex_majors + forex_minors + commodities + crypto
     return all_symbols
 
 ALL_SYMBOLS = get_symbol_lists()
@@ -723,7 +723,7 @@ elif page == "New Trade":
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            quantity = st.number_input("Quantity*", min_value=0.0001, step=0.01, value=1.0)
+            quantity = st.number_input("Quantity*", min_value=0.001, step=0.01, value=1.0)
             entry_price = st.number_input("Entry Price*", min_value=0.0001, step=0.01)
         
         with col2:
@@ -759,7 +759,7 @@ elif page == "New Trade":
         with col1:
             strategy = st.selectbox(
                 "Strategy",
-                ["Scalping", "Day Trading", "Swing Trading", "Position Trading", 
+                ["Day Trading", "Swing Trading", "Position Trading","Scalping", 
                  "Momentum", "Mean Reversion", "Breakout", "Other"]
             )
             timeframe = st.selectbox(
