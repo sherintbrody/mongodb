@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 import numpy as np
+import hashlib
 
 st.set_page_config(
     page_title="Trading Journal Pro", 
@@ -102,37 +103,34 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Connect to MongoDB ---
+# --- Connect to MongoDB with caching ---
+@st.cache_resource(ttl=3600)
 def get_mongo_connection():
-    """Get MongoDB connection"""
+    """Get MongoDB connection - cached for 1 hour"""
     return MongoClient(st.secrets["mongo"]["URI"])
 
-# Get fresh connection each time
 client = get_mongo_connection()
 db = client[st.secrets["mongo"]["DB"]]
 collection = db[st.secrets["mongo"]["COLLECTION"]]
 
-# --- Symbol Lists ---
-INDICES = ["NAS100", "US30", "SP500", "US100", "DJ30", "GER40", "UK100", "JPN225", "AUS200"]
+# --- Symbol Lists (cached as they don't change) ---
+@st.cache_data
+def get_symbol_lists():
+    """Get all symbol lists - cached"""
+    indices = ["NAS100", "US30", "SP500", "US100", "DJ30", "GER40", "UK100", "JPN225", "AUS200"]
+    forex_majors = ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"]
+    forex_minors = ["EUR/GBP", "EUR/AUD", "EUR/CAD", "EUR/JPY", "GBP/JPY", "GBP/AUD", "AUD/JPY", "AUD/CAD", "NZD/JPY"]
+    commodities = ["GOLD", "SILVER", "OIL", "NATGAS", "COPPER"]
+    crypto = ["BTC/USD", "ETH/USD", "BTC/USDT", "ETH/USDT", "XRP/USD", "SOL/USD"]
+    all_symbols = ["Custom"] + indices + forex_majors + forex_minors + commodities + crypto
+    return all_symbols
 
-FOREX_MAJORS = [
-    "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"
-]
+ALL_SYMBOLS = get_symbol_lists()
 
-FOREX_MINORS = [
-    "EUR/GBP", "EUR/AUD", "EUR/CAD", "EUR/JPY", "GBP/JPY", "GBP/AUD", 
-    "AUD/JPY", "AUD/CAD", "NZD/JPY"
-]
-
-COMMODITIES = ["GOLD", "SILVER", "OIL", "NATGAS", "COPPER"]
-
-CRYPTO = ["BTC/USD", "ETH/USD", "BTC/USDT", "ETH/USDT", "XRP/USD", "SOL/USD"]
-
-ALL_SYMBOLS = ["Custom"] + INDICES + FOREX_MAJORS + FOREX_MINORS + COMMODITIES + CRYPTO
-
-# --- Helper Functions ---
+# --- Helper Functions (cached where possible) ---
+@st.cache_data
 def format_date_display(date_val):
-    """Format date to DD-MM-YYYY"""
+    """Format date to DD-MM-YYYY - cached"""
     if pd.isna(date_val) or date_val is None:
         return "-"
     
@@ -147,8 +145,9 @@ def format_date_display(date_val):
     except:
         return "-"
 
+@st.cache_data
 def parse_date_from_display(date_str):
-    """Parse DD-MM-YYYY to ISO format"""
+    """Parse DD-MM-YYYY to ISO format - cached"""
     if not date_str or date_str == "-" or date_str == "":
         return None
     try:
@@ -158,7 +157,7 @@ def parse_date_from_display(date_str):
         return None
 
 def load_all_trades():
-    """Load all trades from MongoDB - NO CACHING"""
+    """Load all trades from MongoDB - NO CACHING for fresh data"""
     try:
         docs = list(collection.find())
         return docs
@@ -166,8 +165,10 @@ def load_all_trades():
         st.error(f"Error loading trades: {str(e)}")
         return []
 
-def migrate_old_data(df):
-    """Migrate old data format to new format"""
+@st.cache_data(ttl=300)
+def migrate_old_data(_df):
+    """Migrate old data format to new format - cached for 5 minutes"""
+    df = _df.copy()
     if df.empty:
         return df
     
@@ -209,8 +210,10 @@ def migrate_old_data(df):
     
     return df
 
-def calculate_metrics(df):
-    """Calculate trading metrics"""
+@st.cache_data(ttl=300)
+def calculate_metrics(_df):
+    """Calculate trading metrics - cached for 5 minutes"""
+    df = _df.copy()
     if df.empty:
         return {
             'total_trades': 0,
@@ -286,8 +289,10 @@ def calculate_metrics(df):
     
     return metrics
 
-def get_equity_curve(df):
-    """Generate equity curve from trades starting at 0"""
+@st.cache_data(ttl=300)
+def get_equity_curve(_df):
+    """Generate equity curve from trades starting at 0 - cached for 5 minutes"""
+    df = _df.copy()
     if df.empty:
         return pd.DataFrame()
     
@@ -313,12 +318,14 @@ def get_equity_curve(df):
     
     return trades_with_pnl
 
+@st.cache_data
 def capitalize_headers(text):
-    """Capitalize first letter of each word"""
+    """Capitalize first letter of each word - cached"""
     return ' '.join(word.capitalize() for word in str(text).split('_'))
 
+@st.cache_data
 def get_chart_layout(title=""):
-    """Get standard chart layout with black background"""
+    """Get standard chart layout with black background - cached"""
     return dict(
         title=title,
         plot_bgcolor='#000000',
@@ -342,12 +349,26 @@ def get_chart_layout(title=""):
         )
     )
 
+# --- Initialize session state for performance ---
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = datetime.now()
+
+if 'data_version' not in st.session_state:
+    st.session_state.data_version = 0
+
+def increment_data_version():
+    """Increment data version to invalidate cache"""
+    st.session_state.data_version += 1
+    st.session_state.last_update = datetime.now()
+
 # --- Sidebar Navigation ---
 st.sidebar.title("🚀 Trading Journal Pro")
 st.sidebar.markdown("---")
 
 # Add refresh button
 if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+    st.cache_data.clear()
+    increment_data_version()
     st.rerun()
 
 page = st.sidebar.radio(
@@ -777,7 +798,9 @@ elif page == "➕ New Trade":
                 if result.inserted_id:
                     st.success("✅ Trade saved successfully!")
                     st.balloons()
-                    # Force refresh
+                    # Clear cache and force refresh
+                    st.cache_data.clear()
+                    increment_data_version()
                     st.rerun()
                 else:
                     st.error("❌ Failed to save trade")
@@ -877,6 +900,8 @@ elif page == "📈 Open Positions":
                                     
                                     if result.modified_count > 0:
                                         st.success("✅ Position closed successfully!")
+                                        st.cache_data.clear()
+                                        increment_data_version()
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to update position")
@@ -886,6 +911,8 @@ elif page == "📈 Open Positions":
                                     result = collection.delete_one({"_id": trade['_id']})
                                     if result.deleted_count > 0:
                                         st.success("🗑️ Trade deleted!")
+                                        st.cache_data.clear()
+                                        increment_data_version()
                                         st.rerun()
                     
                     if trade.get('notes'):
@@ -1068,7 +1095,9 @@ elif page == "📉 Trade History":
                     
                     if success_count > 0:
                         st.success(f"✅ Successfully updated {success_count} trade(s)!")
-                        # Wait a moment then refresh
+                        # Clear cache and wait then refresh
+                        st.cache_data.clear()
+                        increment_data_version()
                         import time
                         time.sleep(0.5)
                         st.rerun()
@@ -1111,6 +1140,8 @@ elif page == "📉 Trade History":
                     result = collection.delete_one({"_id": trade_id})
                     if result.deleted_count > 0:
                         st.success("✅ Trade deleted successfully!")
+                        st.cache_data.clear()
+                        increment_data_version()
                         st.rerun()
                     else:
                         st.error("❌ Failed to delete trade")
@@ -1148,6 +1179,8 @@ elif page == "📉 Trade History":
                     result = collection.delete_many(query)
                     st.success(f"✅ Deleted {result.deleted_count} trade(s)!")
                     st.session_state['confirm_bulk_delete'] = False
+                    st.cache_data.clear()
+                    increment_data_version()
                     st.rerun()
                 
     else:
@@ -1672,6 +1705,8 @@ elif page == "⚙️ Settings":
                 if st.button("🗑️ Confirm Delete All Trades", type="secondary"):
                     collection.delete_many({})
                     st.success("✅ All trades deleted")
+                    st.cache_data.clear()
+                    increment_data_version()
                     st.rerun()
             
             st.divider()
@@ -1681,6 +1716,8 @@ elif page == "⚙️ Settings":
                 if st.button("🗑️ Confirm Delete Open Trades", type="secondary"):
                     collection.delete_many({"status": "OPEN"})
                     st.success("✅ Open trades deleted")
+                    st.cache_data.clear()
+                    increment_data_version()
                     st.rerun()
             
             st.divider()
@@ -1690,6 +1727,8 @@ elif page == "⚙️ Settings":
                 if st.button("🗑️ Confirm Delete Closed Trades", type="secondary"):
                     collection.delete_many({"status": "CLOSED"})
                     st.success("✅ Closed trades deleted")
+                    st.cache_data.clear()
+                    increment_data_version()
                     st.rerun()
     
     with tab2:
