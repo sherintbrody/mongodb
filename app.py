@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 from pymongo import MongoClient
 import pandas as pd
 import plotly.express as px
@@ -64,9 +65,17 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     
-    /* Sidebar - Keep default Streamlit styling */
+    /* Modern Dark Sidebar */
     [data-testid="stSidebar"] {
-        background-color: inherit;
+        background-color: #0e1117;
+        padding-top: 2rem;
+    }
+    [data-testid="stSidebar"] * {
+        color: #cfcfcf;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    .nav-link-selected {
+        background-color: #2a2a2a !important;
     }
     
     /* Expander */
@@ -361,28 +370,46 @@ def increment_data_version():
     st.session_state.data_version += 1
     st.session_state.last_update = datetime.now()
 
-# --- Sidebar Navigation ---
-st.sidebar.title("🚀 Trading Journal Pro")
-st.sidebar.markdown("---")
+# --- Modern Sidebar Navigation ---
+with st.sidebar:
+    st.markdown("### 🚀 Trading Journal Pro")
+    st.markdown("---")
+    
+    selected = option_menu(
+        menu_title=None,
+        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Analytics", "Settings"],
+        icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "bar-chart-line", "gear"],
+        menu_icon="cast",
+        default_index=0,
+        styles={
+            "container": {"padding": "0!important", "background-color": "#0e1117"},
+            "icon": {"color": "#cfcfcf", "font-size": "18px"},
+            "nav-link": {
+                "color": "#cfcfcf",
+                "font-size": "16px",
+                "text-align": "left",
+                "margin": "5px 0",
+                "--hover-color": "#262730"
+            },
+            "nav-link-selected": {"background-color": "#2a2a2a"},
+        }
+    )
+    
+    st.markdown("---")
+    
+    if st.button("🔄 Refresh Data", use_container_width=True):
+        st.cache_data.clear()
+        increment_data_version()
+        st.rerun()
+    
+    st.markdown("---")
+    st.info("💡 **Tip**: Consistently tracking your trades is key to improvement!")
 
-# Add refresh button
-if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
-    st.cache_data.clear()
-    increment_data_version()
-    st.rerun()
-
-page = st.sidebar.radio(
-    "📋 Navigation",
-    ["📊 Dashboard", "➕ New Trade", "📈 Open Positions", "📉 Trade History", 
-     "📊 Analytics", "⚙️ Settings"],
-    label_visibility="visible"
-)
-
-st.sidebar.markdown("---")
-st.sidebar.info("💡 **Tip**: Consistently tracking your trades is key to improvement!")
+# Map selected option to page
+page = selected
 
 # --- Dashboard Page ---
-if page == "📊 Dashboard":
+if page == "Dashboard":
     st.title("📊 Trading Dashboard")
     st.markdown("### Overview of Your Trading Performance")
     
@@ -656,7 +683,7 @@ if page == "📊 Dashboard":
         st.info("📝 No trades recorded yet. Start by adding a new trade!")
 
 # --- New Trade Page ---
-elif page == "➕ New Trade":
+elif page == "New Trade":
     st.title("➕ Add New Trade")
     st.markdown("### Record your trade details")
     
@@ -808,7 +835,7 @@ elif page == "➕ New Trade":
                 st.error("❌ Please fill in all required fields marked with *")
 
 # --- Open Positions Page ---
-elif page == "📈 Open Positions":
+elif page == "Open Positions":
     st.title("📈 Open Positions")
     st.markdown("### Active trades currently in the market")
     
@@ -925,7 +952,7 @@ elif page == "📈 Open Positions":
         st.info("📝 No trades recorded yet")
 
 # --- Trade History Page ---
-elif page == "📉 Trade History":
+elif page == "Trade History":
     st.title("📉 Trade History")
     st.markdown("### Complete record of all your trades")
     
@@ -1187,7 +1214,7 @@ elif page == "📉 Trade History":
         st.info("📭 No trades found with the selected filters")
 
 # --- Analytics Page ---
-elif page == "📊 Analytics":
+elif page == "Analytics":
     st.title("📊 Trading Analytics")
     st.markdown("### Deep dive into your trading performance")
     
@@ -1633,7 +1660,7 @@ elif page == "📊 Analytics":
         st.info("📝 No data available for analytics")
 
 # --- Settings Page ---
-elif page == "⚙️ Settings":
+elif page == "Settings":
     st.title("⚙️ Settings")
     st.markdown("### Manage your trading journal")
     
