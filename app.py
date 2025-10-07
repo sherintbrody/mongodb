@@ -63,9 +63,9 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     
-    /* Sidebar */
+    /* Sidebar - Keep default Streamlit styling */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+        background-color: inherit;
     }
     
     /* Expander */
@@ -92,6 +92,16 @@ st.markdown("""
         border-radius: 8px;
         padding: 1rem;
     }
+    
+    /* Delete button styling */
+    .delete-button {
+        background-color: #ff1744;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -103,6 +113,24 @@ def init_connection():
 client = init_connection()
 db = client[st.secrets["mongo"]["DB"]]
 collection = db[st.secrets["mongo"]["COLLECTION"]]
+
+# --- Symbol Lists ---
+INDICES = ["NAS100", "US30", "SP500", "US100", "DJ30", "GER40", "UK100", "JPN225", "AUS200"]
+
+FOREX_MAJORS = [
+    "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"
+]
+
+FOREX_MINORS = [
+    "EUR/GBP", "EUR/AUD", "EUR/CAD", "EUR/JPY", "GBP/JPY", "GBP/AUD", 
+    "AUD/JPY", "AUD/CAD", "NZD/JPY"
+]
+
+COMMODITIES = ["GOLD", "SILVER", "OIL", "NATGAS", "COPPER"]
+
+CRYPTO = ["BTC/USD", "ETH/USD", "BTC/USDT", "ETH/USDT", "XRP/USD", "SOL/USD"]
+
+ALL_SYMBOLS = ["Custom"] + INDICES + FOREX_MAJORS + FOREX_MINORS + COMMODITIES + CRYPTO
 
 # --- Helper Functions ---
 def migrate_old_data(df):
@@ -132,12 +160,12 @@ def migrate_old_data(df):
     if 'outcome' not in df.columns:
         df['outcome'] = None
     
-    # Add manual_pnl field if not present
-    if 'manual_pnl' not in df.columns:
-        df['manual_pnl'] = None
+    # Add pnl field if not present
+    if 'pnl' not in df.columns:
+        df['pnl'] = None
     
     # Ensure numeric columns are numeric
-    numeric_cols = ['quantity', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount', 'manual_pnl']
+    numeric_cols = ['quantity', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'risk_amount', 'pnl']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -181,10 +209,6 @@ def calculate_metrics(df):
             'total_wins': 0,
             'total_losses': 0
         }
-    
-    # Use manual P&L if available
-    if 'manual_pnl' in closed_trades.columns:
-        closed_trades['pnl'] = closed_trades['manual_pnl']
     
     # Filter out trades without P&L data
     trades_with_pnl = closed_trades[closed_trades['pnl'].notna()].copy()
@@ -236,10 +260,6 @@ def get_equity_curve(df):
     if closed_trades.empty:
         return pd.DataFrame()
     
-    # Use manual P&L if available
-    if 'manual_pnl' in closed_trades.columns:
-        closed_trades['pnl'] = closed_trades['manual_pnl']
-    
     # Filter trades with P&L
     trades_with_pnl = closed_trades[closed_trades['pnl'].notna()].copy()
     
@@ -248,6 +268,7 @@ def get_equity_curve(df):
     
     # Sort by entry date
     if 'entry_date' in trades_with_pnl.columns:
+        trades_with_pnl['entry_date'] = pd.to_datetime(trades_with_pnl['entry_date'])
         trades_with_pnl = trades_with_pnl.sort_values('entry_date')
     
     # Calculate cumulative P&L
@@ -491,7 +512,7 @@ if page == "📊 Dashboard":
         st.markdown("### 📋 Recent Trades")
         
         display_cols = []
-        possible_cols = ['entry_date', 'symbol', 'side', 'outcome', 'quantity', 'entry_price', 'exit_price', 'manual_pnl', 'status']
+        possible_cols = ['entry_date', 'symbol', 'side', 'outcome', 'quantity', 'entry_price', 'exit_price', 'pnl', 'status']
         for col in possible_cols:
             if col in df.columns:
                 display_cols.append(col)
@@ -500,8 +521,8 @@ if page == "📊 Dashboard":
             recent_trades = df.sort_index(ascending=False).head(10)[display_cols].copy()
             
             # Format display
-            if 'manual_pnl' in recent_trades.columns:
-                recent_trades['manual_pnl'] = recent_trades['manual_pnl'].apply(
+            if 'pnl' in recent_trades.columns:
+                recent_trades['pnl'] = recent_trades['pnl'].apply(
                     lambda x: f"${x:.2f}" if pd.notna(x) else "-"
                 )
             
@@ -514,7 +535,7 @@ if page == "📊 Dashboard":
                     "symbol": st.column_config.TextColumn("Symbol"),
                     "side": st.column_config.TextColumn("Side"),
                     "outcome": st.column_config.TextColumn("Outcome"),
-                    "manual_pnl": st.column_config.TextColumn("P&L"),
+                    "pnl": st.column_config.TextColumn("P&L"),
                     "status": st.column_config.TextColumn("Status"),
                 }
             )
@@ -535,11 +556,18 @@ elif page == "➕ New Trade":
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            symbol = st.text_input("Symbol*", placeholder="AAPL, BTC-USD, EUR/USD")
+            # Symbol dropdown with custom option
+            symbol_choice = st.selectbox("Select Symbol*", ALL_SYMBOLS, index=0)
+            if symbol_choice == "Custom":
+                symbol = st.text_input("Enter Custom Symbol*", placeholder="e.g., AAPL, TSLA")
+            else:
+                symbol = symbol_choice
+                st.text_input("Selected Symbol", value=symbol, disabled=True)
+            
             side = st.selectbox("Side*", ["LONG", "SHORT"])
         
         with col2:
-            trade_type = st.selectbox("Trade Type", ["STOCK", "FOREX", "CRYPTO", "OPTIONS", "FUTURES"])
+            trade_type = st.selectbox("Trade Type", ["FOREX", "INDICES", "COMMODITIES", "CRYPTO", "STOCK", "OPTIONS", "FUTURES"])
             status = st.selectbox("Status*", ["OPEN", "CLOSED"])
         
         with col3:
@@ -557,21 +585,17 @@ elif page == "➕ New Trade":
         
         with col2:
             exit_price = st.number_input("Exit Price (if closed)", min_value=0.0, step=0.01)
-            outcome = st.selectbox("Outcome*", ["WIN", "LOSS", "BE", "TSL", "PENDING"])
+            outcome = st.selectbox("Outcome*", ["PENDING", "WIN", "LOSS", "BE", "TSL"])
         
         with col3:
-            # Manual P&L input
-            use_manual_pnl = st.checkbox("Enter P&L Manually", value=False)
-            if use_manual_pnl:
-                manual_pnl = st.number_input("P&L ($)*", step=0.01, format="%.2f")
-            else:
-                manual_pnl = None
+            entry_fee = st.number_input("Entry Fee ($)", min_value=0.0, step=0.01)
+            exit_fee = st.number_input("Exit Fee ($)", min_value=0.0, step=0.01)
         
         st.divider()
         
         st.markdown("#### 🎯 Risk Management")
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             stop_loss = st.number_input("Stop Loss", min_value=0.0, step=0.01)
         with col2:
@@ -580,6 +604,9 @@ elif page == "➕ New Trade":
             risk_amount = st.number_input("Risk Amount ($)", min_value=0.0, step=1.0)
         with col4:
             risk_reward_ratio = st.number_input("R:R Ratio", min_value=0.0, step=0.1)
+        with col5:
+            # P/L as a column in risk management
+            pnl = st.number_input("P&L ($)*", step=0.01, format="%.2f", help="Enter your profit or loss")
         
         st.divider()
         
@@ -598,8 +625,8 @@ elif page == "➕ New Trade":
             )
         
         with col2:
-            entry_fee = st.number_input("Entry Fee ($)", min_value=0.0, step=0.01)
-            exit_fee = st.number_input("Exit Fee ($)", min_value=0.0, step=0.01)
+            confidence_level = st.slider("Confidence Level", 1, 10, 5)
+            emotion = st.selectbox("Emotional State", ["Calm", "Excited", "Anxious", "Fearful", "Greedy"])
         
         notes = st.text_area("Trade Notes", placeholder="Entry reasons, market conditions, lessons learned...")
         
@@ -607,12 +634,6 @@ elif page == "➕ New Trade":
             "Tags",
             ["Earnings", "News", "Technical", "Fundamental", "FOMO", "Revenge Trade", "Plan Followed"]
         )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            confidence_level = st.slider("Confidence Level", 1, 10, 5)
-        with col2:
-            emotion = st.selectbox("Emotional State", ["Calm", "Excited", "Anxious", "Fearful", "Greedy"])
         
         st.divider()
         
@@ -632,7 +653,7 @@ elif page == "➕ New Trade":
                     "entry_date": datetime.combine(entry_date, entry_time).isoformat(),
                     "status": status,
                     "outcome": outcome,
-                    "manual_pnl": manual_pnl,
+                    "pnl": pnl if pnl != 0 else None,
                     "stop_loss": stop_loss if stop_loss > 0 else None,
                     "take_profit": take_profit if take_profit > 0 else None,
                     "risk_amount": risk_amount if risk_amount > 0 else None,
@@ -718,17 +739,12 @@ elif page == "📈 Open Positions":
                                 key=f"outcome_{trade['_id']}"
                             )
                             
-                            use_manual_pnl = st.checkbox("Manual P&L", key=f"manual_{trade['_id']}")
-                            
-                            if use_manual_pnl:
-                                manual_pnl = st.number_input(
-                                    "P&L ($)",
-                                    step=0.01,
-                                    format="%.2f",
-                                    key=f"pnl_{trade['_id']}"
-                                )
-                            else:
-                                manual_pnl = None
+                            pnl_input = st.number_input(
+                                "P&L ($)*",
+                                step=0.01,
+                                format="%.2f",
+                                key=f"pnl_{trade['_id']}"
+                            )
                             
                             exit_fee = st.number_input("Exit Fee", min_value=0.0, step=0.01, key=f"fee_{trade['_id']}")
                             
@@ -740,11 +756,9 @@ elif page == "📈 Open Positions":
                                         "exit_fee": exit_fee,
                                         "exit_date": datetime.now().isoformat(),
                                         "status": "CLOSED",
-                                        "outcome": outcome
+                                        "outcome": outcome,
+                                        "pnl": pnl_input
                                     }
-                                    
-                                    if use_manual_pnl:
-                                        update_data["manual_pnl"] = manual_pnl
                                     
                                     collection.update_one(
                                         {"_id": trade['_id']},
@@ -796,7 +810,7 @@ elif page == "📉 Trade History":
         with col2:
             filter_trade_type = st.selectbox(
                 "Trade Type",
-                ["All", "STOCK", "FOREX", "CRYPTO", "OPTIONS", "FUTURES"]
+                ["All", "FOREX", "INDICES", "COMMODITIES", "CRYPTO", "STOCK", "OPTIONS", "FUTURES"]
             )
     
     # Build query
@@ -824,20 +838,12 @@ elif page == "📉 Trade History":
         # Display summary
         st.markdown(f"**Found {len(df)} trades**")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("🗑️ Delete All Filtered Trades", type="secondary", use_container_width=True):
-                if st.checkbox("⚠️ I understand this will delete all filtered trades"):
-                    collection.delete_many(query)
-                    st.success("✅ Trades deleted!")
-                    st.rerun()
-        
         st.divider()
         
         # Display columns selection
         available_cols = [col for col in df.columns if col != '_id']
         default_cols = ['entry_date', 'symbol', 'side', 'outcome', 'quantity', 'entry_price', 
-                       'exit_price', 'manual_pnl', 'status', 'strategy']
+                       'exit_price', 'pnl', 'status', 'strategy']
         display_cols = [col for col in default_cols if col in available_cols]
         
         selected_cols = st.multiselect(
@@ -860,8 +866,8 @@ elif page == "📉 Trade History":
                         lambda x: f"${x:.2f}" if pd.notna(x) and x != 0 else "-"
                     )
             
-            if 'manual_pnl' in display_df.columns:
-                display_df['manual_pnl'] = display_df['manual_pnl'].apply(
+            if 'pnl' in display_df.columns:
+                display_df['pnl'] = display_df['pnl'].apply(
                     lambda x: f"${x:.2f}" if pd.notna(x) else "-"
                 )
             
@@ -870,13 +876,53 @@ elif page == "📉 Trade History":
                 display_df,
                 use_container_width=True,
                 hide_index=True,
-                height=500
+                height=400
             )
             
             st.divider()
             
-            # Export and delete buttons
-            col1, col2, col3 = st.columns([2, 1, 2])
+            # Individual delete section - right below the table
+            st.markdown("### 🗑️ Delete Individual Trade")
+            
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                # Create readable options for trade selection
+                trade_options = []
+                for idx, row in df.iterrows():
+                    entry_date = row.get('entry_date', 'N/A')
+                    if isinstance(entry_date, str):
+                        try:
+                            entry_date = datetime.fromisoformat(entry_date).strftime('%Y-%m-%d')
+                        except:
+                            entry_date = 'N/A'
+                    
+                    symbol = row.get('symbol', 'N/A')
+                    side = row.get('side', 'N/A')
+                    pnl = row.get('pnl', 0)
+                    pnl_str = f"${pnl:.2f}" if pd.notna(pnl) else "N/A"
+                    
+                    trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str}")
+                
+                selected_trade_idx = st.selectbox(
+                    "Select trade to delete",
+                    range(len(trade_options)),
+                    format_func=lambda x: trade_options[x]
+                )
+            
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+                if st.button("🗑️ Delete Selected Trade", type="secondary", use_container_width=True):
+                    if selected_trade_idx is not None:
+                        trade_id = df.iloc[selected_trade_idx]['_id']
+                        collection.delete_one({"_id": trade_id})
+                        st.success("✅ Trade deleted successfully!")
+                        st.rerun()
+            
+            st.divider()
+            
+            # Export and bulk delete buttons
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 # Export button
@@ -890,22 +936,17 @@ elif page == "📉 Trade History":
                     type="primary"
                 )
             
+            with col2:
+                if st.button("🗑️ Delete All Filtered Trades", type="secondary", use_container_width=True):
+                    st.warning("⚠️ Click again to confirm deletion of all filtered trades")
+            
             with col3:
-                # Individual delete
-                st.markdown("**Delete Individual Trade:**")
-                trade_ids = df['_id'].tolist()
-                symbols = df['symbol'].tolist()
-                
-                trade_options = [f"{symbol} - {str(tid)[:8]}..." for symbol, tid in zip(symbols, trade_ids)]
-                selected_trade = st.selectbox("Select trade to delete", trade_options, label_visibility="collapsed")
-                
-                if st.button("🗑️ Delete Selected", use_container_width=True, type="secondary"):
-                    if selected_trade:
-                        idx = trade_options.index(selected_trade)
-                        trade_id = trade_ids[idx]
-                        collection.delete_one({"_id": trade_id})
-                        st.success("✅ Trade deleted!")
-                        st.rerun()
+                # Confirmation for bulk delete
+                if st.button("⚠️ Confirm Bulk Delete", type="secondary", use_container_width=True):
+                    collection.delete_many(query)
+                    st.success("✅ Filtered trades deleted!")
+                    st.rerun()
+                    
     else:
         st.info("📭 No trades found with the selected filters")
         st.image("https://via.placeholder.com/400x200?text=No+Trades+Found", use_column_width=True)
@@ -923,9 +964,7 @@ elif page == "📊 Analytics":
         # Only show analytics for closed trades with P&L data
         closed_df = df[df['status'] == 'CLOSED'].copy()
         
-        if not closed_df.empty and 'manual_pnl' in closed_df.columns:
-            # Use manual P&L
-            closed_df['pnl'] = closed_df['manual_pnl']
+        if not closed_df.empty and 'pnl' in closed_df.columns:
             trades_with_pnl = closed_df[closed_df['pnl'].notna()].copy()
             
             if not trades_with_pnl.empty:
@@ -939,6 +978,8 @@ elif page == "📊 Analytics":
                     equity_df = get_equity_curve(df)
                     
                     if not equity_df.empty:
+                        st.markdown("#### 📈 Equity Curve (Cumulative P&L)")
+                        
                         fig = go.Figure()
                         
                         fig.add_trace(go.Scatter(
@@ -957,7 +998,6 @@ elif page == "📊 Analytics":
                         fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
                         
                         fig.update_layout(
-                            title="Cumulative P&L Over Time",
                             xaxis_title="Trade Number",
                             yaxis_title="Cumulative P&L ($)",
                             height=400,
@@ -1375,7 +1415,7 @@ elif page == "📊 Analytics":
                         
                         st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("📝 No trades with complete P&L data. Add manual P&L to trades to see analytics.")
+                st.info("📝 No trades with P&L data. Add P&L to trades to see analytics.")
         else:
             st.info("📝 No closed trades available for analysis")
     else:
@@ -1522,7 +1562,7 @@ elif page == "⚙️ Settings":
             - 📊 Advanced analytics and performance metrics
             - 📈 Equity curve visualization
             - 🎯 Win/Loss/TSL/BE outcome tracking
-            - 💰 Manual P&L entry option
+            - 💰 Manual P&L entry
             - ⚠️ Risk management tools
             """)
         
