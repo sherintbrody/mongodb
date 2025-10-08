@@ -1641,7 +1641,7 @@ elif page == "Diary":
                             formatted_journal = format_journal_text(entry['journal'])
                             st.markdown(f"<div class='entry-content'>{formatted_journal}</div>", unsafe_allow_html=True)
                         
-                        st.caption(f"📝 Saved at: {entry.get('saved_at', 'N/A')} IST")
+                        
                 
                 with col2:
                     st.write("")
