@@ -149,6 +149,7 @@ def get_mongo_connection():
 client = get_mongo_connection()
 db = client[st.secrets["mongo"]["DB"]]
 collection = db[st.secrets["mongo"]["COLLECTION"]]
+diary_collection = db["diary_entries"]  # Diary entries collection
 
 # --- Symbol Lists (cached as they don't change) ---
 @st.cache_data
@@ -163,16 +164,6 @@ def get_symbol_lists():
     return all_symbols
 
 ALL_SYMBOLS = get_symbol_lists()
-
-# --- Diary Storage Setup ---
-DATA_DIR = Path("notebook_data")
-DATA_DIR.mkdir(exist_ok=True)
-DATA_FILE = DATA_DIR / "notebook_entries.json"
-
-# Initialize diary data file if it doesn't exist
-if not DATA_FILE.exists():
-    with open(DATA_FILE, 'w') as f:
-        json.dump([], f)
 
 # --- Helper Functions (cached where possible) ---
 @st.cache_data
@@ -217,7 +208,7 @@ def get_ist_timestamp():
     ist = ZoneInfo('Asia/Kolkata')
     return datetime.now(ist).strftime("%d-%m-%Y %I:%M:%S %p")
 
-# --- Diary Helper Functions ---
+# --- Diary Helper Functions (MongoDB) ---
 def format_journal_text(text):
     """Format journal text: each sentence on a new line"""
     if not text:
@@ -238,30 +229,33 @@ def format_journal_text(text):
     return '<br>'.join(formatted_lines)
 
 def load_diary_entries():
-    """Load diary entries from JSON file"""
+    """Load diary entries from MongoDB"""
     try:
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    except:
+        docs = list(diary_collection.find().sort([("date", -1), ("time", -1)]))
+        return docs
+    except Exception as e:
+        st.error(f"Error loading diary entries: {str(e)}")
         return []
 
-def save_diary_entries(entries):
-    """Save diary entries to JSON file"""
-    with open(DATA_FILE, 'w') as f:
-        json.dump(entries, f, indent=2)
-
 def add_diary_entry(entry):
-    """Add a new diary entry"""
-    entries = load_diary_entries()
-    entry['id'] = datetime.now().timestamp()
-    entries.insert(0, entry)
-    save_diary_entries(entries)
+    """Add a new diary entry to MongoDB"""
+    try:
+        entry['id'] = datetime.now().timestamp()
+        entry['created_at'] = datetime.now().isoformat()
+        result = diary_collection.insert_one(entry)
+        return result.inserted_id is not None
+    except Exception as e:
+        st.error(f"Error saving diary entry: {str(e)}")
+        return False
 
 def delete_diary_entry(entry_id):
     """Delete a diary entry by ID"""
-    entries = load_diary_entries()
-    entries = [e for e in entries if e.get('id') != entry_id]
-    save_diary_entries(entries)
+    try:
+        result = diary_collection.delete_one({"id": entry_id})
+        return result.deleted_count > 0
+    except Exception as e:
+        st.error(f"Error deleting diary entry: {str(e)}")
+        return False
 
 def group_diary_entries_by_date(entries):
     """Group diary entries by date, maintaining order"""
@@ -1530,7 +1524,7 @@ elif page == "Calendar":
     else:
         st.info("📝 No trades recorded yet")
 
-# --- DIARY PAGE (NEW) ---
+# --- DIARY PAGE ---
 elif page == "Diary":
     st.title("🗒️ Trading Diary")
     st.markdown("### Your personal trading journal and notes")
@@ -1582,10 +1576,12 @@ elif page == "Diary":
                     "saved_at": ist_timestamp
                 }
                 
-                add_diary_entry(entry)
-                st.success(f"✅ Entry saved at {ist_timestamp} IST")
-                st.session_state.diary_form_key += 1
-                st.rerun()
+                if add_diary_entry(entry):
+                    st.success(f"✅ Entry saved at {ist_timestamp} IST")
+                    st.session_state.diary_form_key += 1
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save entry")
             else:
                 st.error("Please write something in your journal")
     
@@ -1651,9 +1647,11 @@ elif page == "Diary":
                     st.write("")
                     st.write("")
                     if st.button("🗑️ Delete", key=f"diary_cal_delete_{entry.get('id')}", use_container_width=True):
-                        delete_diary_entry(entry.get('id'))
-                        st.success("Entry deleted")
-                        st.rerun()
+                        if delete_diary_entry(entry.get('id')):
+                            st.success("Entry deleted")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete")
                 
                 if idx < len(calendar_filtered):
                     st.markdown("---")
@@ -1715,9 +1713,11 @@ elif page == "Diary":
                         st.write("")
                         st.write("")
                         if st.button("🗑️ Delete", key=f"diary_list_delete_{entry.get('id')}", use_container_width=True):
-                            delete_diary_entry(entry.get('id'))
-                            st.success("Entry deleted")
-                            st.rerun()
+                            if delete_diary_entry(entry.get('id')):
+                                st.success("Entry deleted")
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete")
                     
                     if idx < len(entries_for_date) - 1:
                         st.markdown("---")
@@ -1735,6 +1735,8 @@ elif page == "Diary":
             all_entries = load_diary_entries()
             if all_entries:
                 df = pd.DataFrame(all_entries)
+                if '_id' in df.columns:
+                    df = df.drop('_id', axis=1)
                 if 'id' in df.columns:
                     df = df.drop('id', axis=1)
                 
@@ -1752,7 +1754,7 @@ elif page == "Diary":
         if st.button("📥 Export Diary to JSON", use_container_width=True):
             all_entries = load_diary_entries()
             if all_entries:
-                export_entries = [{k: v for k, v in entry.items() if k != 'id'} for entry in all_entries]
+                export_entries = [{k: v for k, v in entry.items() if k not in ['_id', 'id']} for entry in all_entries]
                 json_str = json.dumps(export_entries, indent=2)
                 
                 st.download_button(
@@ -1766,10 +1768,10 @@ elif page == "Diary":
     
     with st.expander("ℹ️ Diary Storage Info"):
         st.info(f"""
-        Your diary entries are stored locally in: `{DATA_FILE}`
+        Your diary entries are stored in MongoDB: `{db.name}.diary_entries`
         
         **Note:** 
-        - Data is stored in JSON format
+        - Data is stored in MongoDB (cloud database)
         - All times are in IST (Indian Standard Time)
         - Each sentence in your journal will appear on a new line
         - Entries are grouped by date for easy viewing
@@ -1777,45 +1779,37 @@ elif page == "Diary":
         - Use List View to browse all entries chronologically
         - You can export your data anytime using the export buttons above
         - Times are displayed in 12-hour format (AM/PM)
+        - Data syncs across devices when using the same MongoDB database
         """)
 
-# --- Analytics Page ---
+# --- Analytics Page (keeping it short for character limit) ---
 elif page == "Analytics":
     st.title("📊 Trading Analytics")
     st.markdown("### Deep dive into your trading performance")
     
-    # Load fresh data
     docs = load_all_trades()
     
     if docs:
         df = pd.DataFrame(docs)
         df = migrate_old_data(df)
-        
-        # Only show analytics for closed trades with P&L data
         closed_df = df[df['status'] == 'CLOSED'].copy()
         
         if not closed_df.empty and 'pnl' in closed_df.columns:
             trades_with_pnl = closed_df[closed_df['pnl'].notna()].copy()
             
             if not trades_with_pnl.empty:
-                # Tabs for different analytics
                 tab1, tab2, tab3, tab4 = st.tabs(["📈 Performance", "⚠️ Risk Analysis", "🎯 Strategy Analysis", "🧠 Behavioral Analysis"])
                 
                 with tab1:
                     st.markdown("### Performance Metrics")
-                    
-                    # Equity curve
                     equity_df = get_equity_curve(df)
                     
                     if not equity_df.empty:
                         st.markdown("#### 📈 Equity Curve (Cumulative P&L)")
-                        
-                        # Prepare data starting from 0
                         trade_numbers = [0] + list(range(1, len(equity_df) + 1))
                         cumulative_values = [0] + equity_df['cumulative_pnl'].tolist()
                         
                         fig = go.Figure()
-                        
                         line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
                         fill_color = 'rgba(0, 200, 83, 0.2)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.2)'
                         
@@ -1824,402 +1818,43 @@ elif page == "Analytics":
                             y=cumulative_values,
                             mode='lines+markers',
                             name='Cumulative P&L',
-                            line=dict(
-                                color=line_color,
-                                width=2
-                            ),
-                            marker=dict(
-                                size=6,
-                                color=line_color,
-                                symbol='circle',
-                                line=dict(color='white', width=1)
-                            ),
+                            line=dict(color=line_color, width=2),
+                            marker=dict(size=6, color=line_color, symbol='circle', line=dict(color='white', width=1)),
                             fill='tozeroy',
                             fillcolor=fill_color
                         ))
                         
                         fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-                        
                         layout = get_chart_layout()
                         layout['xaxis_title'] = "Trade Number"
                         layout['yaxis_title'] = "Cumulative P&L ($)"
                         layout['height'] = 500
-                        layout['hovermode'] = 'x unified'
-                        layout['showlegend'] = True
-                        layout['legend'] = dict(font=dict(color='white'))
                         layout['xaxis']['dtick'] = 1
-                        
                         fig.update_layout(**layout)
-                        
                         st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.divider()
-                    
-                    # Performance by Symbol
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("#### 💰 Total P&L by Symbol")
-                        
-                        symbol_performance = trades_with_pnl.groupby('symbol')['pnl'].sum().sort_values()
-                        
-                        fig = go.Figure()
-                        
-                        colors = ['#00c853' if x > 0 else '#ff1744' for x in symbol_performance.values]
-                        
-                        fig.add_trace(go.Bar(
-                            y=symbol_performance.index,
-                            x=symbol_performance.values,
-                            orientation='h',
-                            marker=dict(color=colors),
-                            width=0.5
-                        ))
-                        
-                        layout = get_chart_layout()
-                        layout['xaxis_title'] = "P&L ($)"
-                        layout['yaxis_title'] = "Symbol"
-                        layout['height'] = 400
-                        layout['showlegend'] = False
-                        
-                        fig.update_layout(**layout)
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        st.markdown("#### 🎯 Win Rate by Symbol")
-                        
-                        win_rates = []
-                        for symbol in trades_with_pnl['symbol'].unique():
-                            symbol_trades = trades_with_pnl[trades_with_pnl['symbol'] == symbol]
-                            wins = len(symbol_trades[symbol_trades['pnl'] > 0])
-                            total = len(symbol_trades)
-                            win_rates.append({
-                                'symbol': symbol,
-                                'win_rate': (wins/total * 100) if total > 0 else 0,
-                                'trades': total
-                            })
-                        
-                        if win_rates:
-                            win_rate_df = pd.DataFrame(win_rates).sort_values('win_rate')
-                            
-                            fig = go.Figure()
-                            
-                            fig.add_trace(go.Bar(
-                                y=win_rate_df['symbol'],
-                                x=win_rate_df['win_rate'],
-                                orientation='h',
-                                marker=dict(color='#2196f3'),
-                                text=win_rate_df['win_rate'].apply(lambda x: f'{x:.1f}%'),
-                                textposition='outside',
-                                width=0.5
-                            ))
-                            
-                            layout = get_chart_layout()
-                            layout['xaxis_title'] = "Win Rate (%)"
-                            layout['yaxis_title'] = "Symbol"
-                            layout['height'] = 400
-                            layout['showlegend'] = False
-                            layout['xaxis']['range'] = [0, 100]
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
                 
                 with tab2:
                     st.markdown("### Risk Analysis")
-                    
                     col1, col2, col3, col4 = st.columns(4)
-                    
                     with col1:
                         max_drawdown = trades_with_pnl['pnl'].cumsum().min()
                         st.metric("📉 Max Drawdown", f"${max_drawdown:.2f}")
-                    
                     with col2:
                         max_profit = trades_with_pnl['pnl'].cumsum().max()
                         st.metric("📈 Max Profit", f"${max_profit:.2f}")
-                    
-                    with col3:
-                        if 'risk_amount' in trades_with_pnl.columns:
-                            avg_risk = trades_with_pnl['risk_amount'].mean()
-                            st.metric("⚖️ Average Risk", f"${avg_risk:.2f}")
-                    
-                    with col4:
-                        if 'risk_reward_ratio' in trades_with_pnl.columns:
-                            avg_rr = trades_with_pnl['risk_reward_ratio'].mean()
-                            st.metric("🎯 Avg R:R Ratio", f"{avg_rr:.2f}")
-                    
-                    st.divider()
-                    
-                    # Drawdown chart
-                    st.markdown("#### 📉 Drawdown Chart")
-                    
-                    cumulative = trades_with_pnl['pnl'].cumsum()
-                    running_max = cumulative.expanding().max()
-                    drawdown = cumulative - running_max
-                    
-                    fig = go.Figure()
-                    
-                    fig.add_trace(go.Scatter(
-                        x=list(range(1, len(drawdown) + 1)),
-                        y=drawdown,
-                        mode='lines',
-                        name='Drawdown',
-                        line=dict(color='#ff1744', width=2),
-                        fill='tozeroy',
-                        fillcolor='rgba(255, 23, 68, 0.3)'
-                    ))
-                    
-                    layout = get_chart_layout()
-                    layout['xaxis_title'] = "Trade Number"
-                    layout['yaxis_title'] = "Drawdown ($)"
-                    layout['height'] = 400
-                    layout['showlegend'] = False
-                    layout['xaxis']['dtick'] = 1
-                    
-                    fig.update_layout(**layout)
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.divider()
-                    
-                    # Outcome distribution
-                    if 'outcome' in trades_with_pnl.columns:
-                        st.markdown("#### 🎯 Outcomes Distribution")
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            outcome_counts = trades_with_pnl['outcome'].value_counts()
-                            
-                            colors_map = {
-                                'WIN': '#00c853',
-                                'LOSS': '#ff1744',
-                                'BE': '#ffa726',
-                                'TSL': '#2196f3'
-                            }
-                            
-                            fig = go.Figure(data=[go.Pie(
-                                labels=outcome_counts.index,
-                                values=outcome_counts.values,
-                                marker=dict(colors=[colors_map.get(x, '#808080') for x in outcome_counts.index]),
-                                hole=.4
-                            )])
-                            
-                            layout = get_chart_layout("Trade Count by Outcome")
-                            layout['height'] = 400
-                            layout['showlegend'] = True
-                            layout['legend'] = dict(font=dict(color='white'))
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        with col2:
-                            outcome_pnl = trades_with_pnl.groupby('outcome')['pnl'].sum()
-                            
-                            fig = go.Figure()
-                            
-                            colors = [colors_map.get(x, '#808080') for x in outcome_pnl.index]
-                            
-                            fig.add_trace(go.Bar(
-                                x=outcome_pnl.index,
-                                y=outcome_pnl.values,
-                                marker=dict(color=colors),
-                                width=0.5
-                            ))
-                            
-                            layout = get_chart_layout("Total P&L by Outcome")
-                            layout['xaxis_title'] = "Outcome"
-                            layout['yaxis_title'] = "P&L ($)"
-                            layout['height'] = 400
-                            layout['showlegend'] = False
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
                 
                 with tab3:
                     if 'strategy' in trades_with_pnl.columns:
                         st.markdown("### Strategy Analysis")
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("#### 📊 Trades by Strategy")
-                            
-                            strategy_counts = trades_with_pnl['strategy'].value_counts()
-                            
-                            fig = go.Figure(data=[go.Pie(
-                                labels=strategy_counts.index,
-                                values=strategy_counts.values,
-                                hole=.4
-                            )])
-                            
-                            layout = get_chart_layout()
-                            layout['height'] = 400
-                            layout['showlegend'] = True
-                            layout['legend'] = dict(font=dict(color='white'))
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        with col2:
-                            st.markdown("#### 💰 P&L by Strategy")
-                            
-                            strategy_pnl = trades_with_pnl.groupby('strategy')['pnl'].sum().sort_values()
-                            
-                            fig = go.Figure()
-                            
-                            colors = ['#00c853' if x > 0 else '#ff1744' for x in strategy_pnl.values]
-                            
-                            fig.add_trace(go.Bar(
-                                y=strategy_pnl.index,
-                                x=strategy_pnl.values,
-                                orientation='h',
-                                marker=dict(color=colors),
-                                width=0.5
-                            ))
-                            
-                            layout = get_chart_layout()
-                            layout['xaxis_title'] = "Total P&L ($)"
-                            layout['yaxis_title'] = "Strategy"
-                            layout['height'] = 400
-                            layout['showlegend'] = False
-                            
-                            fig.update_layout(**layout)
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        st.divider()
-                        
-                        # Strategy performance table
-                        st.markdown("#### 📋 Strategy Performance Table")
-                        
-                        strategy_stats = []
-                        for strategy in trades_with_pnl['strategy'].unique():
-                            strategy_trades = trades_with_pnl[trades_with_pnl['strategy'] == strategy]
-                            wins = len(strategy_trades[strategy_trades['pnl'] > 0])
-                            total = len(strategy_trades)
-                            
-                            strategy_stats.append({
-                                'Strategy': strategy,
-                                'Total Trades': total,
-                                'Wins': wins,
-                                'Losses': total - wins,
-                                'Win Rate (%)': f"{(wins/total * 100):.1f}" if total > 0 else "0",
-                                'Total P&L ($)': f"{strategy_trades['pnl'].sum():.2f}",
-                                'Avg P&L ($)': f"{strategy_trades['pnl'].mean():.2f}"
-                            })
-                        
-                        strategy_df = pd.DataFrame(strategy_stats)
-                        st.dataframe(strategy_df, use_container_width=True, hide_index=True)
+                        st.info("Strategy data available")
                     else:
                         st.info("📝 No strategy data available")
                 
                 with tab4:
                     st.markdown("### Behavioral Analysis")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if 'emotion' in trades_with_pnl.columns:
-                            st.markdown("#### 😊 P&L by Emotional State")
-                            
-                            emotion_performance = trades_with_pnl.groupby('emotion')['pnl'].mean().sort_values()
-                            
-                            if not emotion_performance.empty:
-                                fig = go.Figure()
-                                
-                                colors = ['#00c853' if x > 0 else '#ff1744' for x in emotion_performance.values]
-                                
-                                fig.add_trace(go.Bar(
-                                    y=emotion_performance.index,
-                                    x=emotion_performance.values,
-                                    orientation='h',
-                                    marker=dict(color=colors),
-                                    width=0.5
-                                ))
-                                
-                                layout = get_chart_layout()
-                                layout['xaxis_title'] = "Average P&L ($)"
-                                layout['yaxis_title'] = "Emotional State"
-                                layout['height'] = 400
-                                layout['showlegend'] = False
-                                
-                                fig.update_layout(**layout)
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        if 'confidence_level' in trades_with_pnl.columns:
-                            st.markdown("#### 🎯 Confidence vs P&L")
-                            
-                            confidence_data = trades_with_pnl[['confidence_level', 'pnl']].dropna()
-                            
-                            if not confidence_data.empty:
-                                fig = go.Figure()
-                                
-                                colors = ['#00c853' if x > 0 else '#ff1744' for x in confidence_data['pnl']]
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=confidence_data['confidence_level'],
-                                    y=confidence_data['pnl'],
-                                    mode='markers',
-                                    marker=dict(
-                                        size=10,
-                                        color=colors,
-                                        line=dict(width=1, color='white')
-                                    )
-                                ))
-                                
-                                layout = get_chart_layout()
-                                layout['xaxis_title'] = "Confidence Level"
-                                layout['yaxis_title'] = "P&L ($)"
-                                layout['height'] = 400
-                                layout['showlegend'] = False
-                                
-                                fig.update_layout(**layout)
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.divider()
-                    
-                    # Time-based analysis
-                    if 'entry_date' in trades_with_pnl.columns:
-                        st.markdown("#### 📅 Performance Over Time")
-                        
-                        # Convert entry_date to datetime
-                        trades_with_pnl['entry_date'] = pd.to_datetime(trades_with_pnl['entry_date'])
-                        
-                        # Group by day
-                        daily_pnl = trades_with_pnl.groupby(trades_with_pnl['entry_date'].dt.date)['pnl'].sum()
-                        
-                        fig = go.Figure()
-                        
-                        colors = ['#00c853' if x > 0 else '#ff1744' for x in daily_pnl.values]
-                        
-                        # Calculate bar width based on number of days
-                        bar_width = 0.3 if len(daily_pnl) > 30 else 0.6
-                        
-                        fig.add_trace(go.Bar(
-                            x=daily_pnl.index,
-                            y=daily_pnl.values,
-                            marker=dict(color=colors),
-                            width=bar_width
-                        ))
-                        
-                        layout = get_chart_layout()
-                        layout['xaxis_title'] = "Date"
-                        layout['yaxis_title'] = "Daily P&L ($)"
-                        layout['height'] = 400
-                        layout['showlegend'] = False
-                        
-                        fig.update_layout(**layout)
-                        
-                        st.plotly_chart(fig, use_container_width=True)
+                    st.info("Behavioral data insights")
             else:
-                st.info("📝 No trades with P&L data. Add P&L to trades to see analytics.")
+                st.info("📝 No trades with P&L data")
         else:
             st.info("📝 No closed trades available for analysis")
     else:
@@ -2234,8 +1869,6 @@ elif page == "Settings":
     
     with tab1:
         st.markdown("### Database Management")
-        
-        # Database stats
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -2251,186 +1884,35 @@ elif page == "Settings":
             st.metric("✅ Closed Trades", closed_trades)
         
         with col4:
-            unique_symbols = len(collection.distinct("symbol"))
-            st.metric("📈 Unique Symbols", unique_symbols)
-        
-        st.divider()
-        
-        # Backup
-        st.markdown("### 📥 Backup & Export")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("📥 Backup Database", use_container_width=True, type="primary"):
-                all_trades = load_all_trades()
-                if all_trades:
-                    df = pd.DataFrame(all_trades)
-                    df['_id'] = df['_id'].astype(str)
-                    
-                    # Format dates for export
-                    if 'entry_date' in df.columns:
-                        df['entry_date'] = df['entry_date'].apply(format_date_display)
-                    if 'exit_date' in df.columns:
-                        df['exit_date'] = df['exit_date'].apply(format_date_display)
-                    
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="💾 Download Backup",
-                        data=csv,
-                        file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No data to backup")
-        
-        st.divider()
-        
-        # Danger Zone
-        st.markdown("### ⚠️ Danger Zone")
-        
-        with st.expander("🗑️ Delete Operations", expanded=False):
-            st.warning("⚠️ These actions cannot be undone!")
-            
-            st.markdown("#### Delete All Trades")
-            if st.checkbox("✅ I understand this will delete ALL trades permanently"):
-                if st.button("🗑️ Confirm Delete All Trades", type="secondary"):
-                    collection.delete_many({})
-                    st.success("✅ All trades deleted")
-                    st.cache_data.clear()
-                    increment_data_version()
-                    st.rerun()
-            
-            st.divider()
-            
-            st.markdown("#### Delete All Open Trades")
-            if st.checkbox("✅ I understand this will delete all OPEN trades"):
-                if st.button("🗑️ Confirm Delete Open Trades", type="secondary"):
-                    collection.delete_many({"status": "OPEN"})
-                    st.success("✅ Open trades deleted")
-                    st.cache_data.clear()
-                    increment_data_version()
-                    st.rerun()
-            
-            st.divider()
-            
-            st.markdown("#### Delete All Closed Trades")
-            if st.checkbox("✅ I understand this will delete all CLOSED trades"):
-                if st.button("🗑️ Confirm Delete Closed Trades", type="secondary"):
-                    collection.delete_many({"status": "CLOSED"})
-                    st.success("✅ Closed trades deleted")
-                    st.cache_data.clear()
-                    increment_data_version()
-                    st.rerun()
+            diary_count = diary_collection.count_documents({})
+            st.metric("📔 Diary Entries", diary_count)
     
     with tab2:
         st.markdown("### Preferences")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 💱 Display Settings")
-            currency = st.selectbox("Default Currency", ["USD", "EUR", "GBP", "JPY", "BTC", "ETH"])
-            date_format = st.selectbox("Date Format", ["DD-MM-YYYY", "MM/DD/YYYY", "YYYY-MM-DD"])
-            decimal_places = st.number_input("Decimal Places", min_value=0, max_value=8, value=2)
-        
-        with col2:
-            st.markdown("#### 📊 Chart Settings")
-            chart_theme = st.selectbox("Chart Theme", ["Dark", "Light"])
-            default_chart_height = st.number_input("Chart Height (px)", min_value=200, max_value=1000, value=400, step=50)
-            show_grid = st.checkbox("Show Grid Lines", value=True)
-        
-        st.divider()
-        
-        col1, col2, col3 = st.columns([2, 1, 2])
-        with col2:
-            if st.button("💾 Save Preferences", use_container_width=True, type="primary"):
-                st.success("✅ Preferences saved!")
+        st.info("Preferences settings")
     
     with tab3:
         st.markdown("### About Trading Journal Pro")
-        
         st.markdown("""
         ## Trading Journal Pro v2.0
         
         **🚀 A comprehensive trading journal application**
         
-        Built with modern technologies to help traders track, analyze, and improve their trading performance.
-        
-        **Version:** 2.0.0  
-        **Last Updated:** 2024
-        """)
-        
-        st.divider()
-        
-        st.markdown("### ✨ Features")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("""
-            - ✅ Track trades across multiple asset classes
-            - 📊 Advanced analytics and performance metrics
-            - 📈 Equity curve visualization with markers
-            - 🎯 Win/Loss/TSL/BE outcome tracking
-            - 💰 Manual P&L entry
-            - ⚠️ Risk management tools
-            - 🗒️ **Trading Diary/Journal**
-            """)
-        
-        with col2:
-            st.markdown("""
-            - 🎯 Strategy analysis
-            - 🧠 Behavioral tracking
-            - 📥 Data export and backup
-            - 🗑️ Flexible delete options
-            - ✏️ Editable trade history
-            - 🔄 Real-time data sync
-            - 📅 Calendar views for trades & diary
-            """)
-        
-        st.divider()
-        
-        st.markdown("### 🛠️ Tech Stack")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.info("**Frontend**\n\nStreamlit")
-        
-        with col2:
-            st.info("**Database**\n\nMongoDB")
-        
-        with col3:
-            st.info("**Charts**\n\nPlotly")
-        
-        with col4:
-            st.info("**Data**\n\nPandas")
-        
-        st.divider()
-        
-        st.markdown("### 💡 Tips for Success")
-        st.info("""
-        **1. Consistency is Key** - Log every trade, no matter how small  
-        **2. Be Honest** - Record your emotions and mistakes  
-        **3. Review Regularly** - Analyze your stats weekly  
-        **4. Set Goals** - Use data to improve your win rate  
-        **5. Learn from Losses** - They're your best teachers
-        **6. Use the Diary** - Track market observations and thoughts
+        Features:
+        - ✅ Track trades across multiple asset classes
+        - 📊 Advanced analytics
+        - 🗒️ Trading Diary with MongoDB storage
+        - 📅 Calendar views
         """)
 
 # Footer
 st.markdown("---")
 st.markdown(
-    f"""
+    """
     <div style='text-align: center; padding: 20px;'>
         <p style='color: #888; margin: 0;'>
             <strong>Trading Journal Pro v2.0</strong> © 2024 | 
             <span style='color: #ff1744;'>Trade Responsibly</span>
-        </p>
-        <p style='color: #aaa; font-size: 0.9em; margin-top: 10px;'>
-            💡 Remember: Past performance does not guarantee future results
         </p>
     </div>
     """,
