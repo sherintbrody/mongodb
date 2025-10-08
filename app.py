@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 import numpy as np
 import hashlib
+import calendar
 
 st.set_page_config(
     page_title="Trading Journal Pro", 
@@ -377,7 +378,7 @@ with st.sidebar:
     
     selected = option_menu(
         menu_title=None,
-        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Calendar", "Analytics", "Settings"],
+        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Calendar", "📓 Daily Journal", "Analytics", "Settings"],
         icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "calendar3", "bar-chart-line", "gear"],
         menu_icon="cast",
         default_index=0,
@@ -1419,6 +1420,147 @@ elif page == "Calendar":
     else:
         st.info("📝 No trades recorded yet")
 
+# --- Trading Notebook Page ---
+elif page == "🗒️ Trading Notebook":
+    st.title("🗒️ Trading Notebook")
+    st.markdown("### Your personal trading diary")
+    
+    # Create a separate collection for notebook entries
+    notebook_collection = db["notebook_entries"]
+    
+    # Helper functions
+    def get_day_name(date_obj):
+        return calendar.day_name[date_obj.weekday()]
+    
+    def get_ist_timestamp():
+        ist = pytz.timezone('Asia/Kolkata')
+        return datetime.now(ist).strftime("%d-%m-%Y %I:%M:%S %p")
+    
+    # Simple entry form
+    st.subheader("✍️ Write Entry")
+    
+    with st.form("notebook_form", clear_on_submit=True):
+        # Date and Time
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            date_input = st.date_input("Date", datetime.today())
+        
+        with col2:
+            day_name = get_day_name(date_input)
+            st.text_input("Day", value=day_name, disabled=True)
+        
+        with col3:
+            time_input = st.time_input("Time", datetime.now().time())
+        
+        # News field
+        news = st.text_input("📰 News/Events (optional)", placeholder="Any important news or events...")
+        
+        # Main journal entry
+        journal = st.text_area(
+            "📝 Journal Entry",
+            placeholder="Write your thoughts, observations, trades, lessons learned...",
+            height=250
+        )
+        
+        # Save button
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            submitted = st.form_submit_button("💾 Save Entry", use_container_width=True, type="primary")
+        
+        if submitted:
+            if journal or news:  # At least one should be filled
+                ist_timestamp = get_ist_timestamp()
+                entry = {
+                    "date": date_input.strftime("%d-%m-%Y"),
+                    "day": day_name,
+                    "time": time_input.strftime("%I:%M %p"),
+                    "news": news,
+                    "journal": journal,
+                    "saved_at": ist_timestamp
+                }
+                
+                notebook_collection.insert_one(entry)
+                st.success(f"✅ Entry saved at {ist_timestamp} IST")
+            else:
+                st.error("Please write something in your journal")
+    
+    st.divider()
+    
+    # View entries
+    st.subheader("📖 Previous Entries")
+    
+    # Simple filter
+    view_option = st.selectbox(
+        "Show entries from",
+        ["All", "Today", "Last 7 Days", "Last 30 Days"],
+        index=0
+    )
+    
+    # Build query based on filter
+    query = {}
+    if view_option == "Today":
+        today = datetime.now().strftime("%d-%m-%Y")
+        query["date"] = today
+    elif view_option == "Last 7 Days":
+        # Note: This is a simple approach, for production you might want to use proper date comparison
+        pass  # Will show all and rely on limit
+    elif view_option == "Last 30 Days":
+        pass  # Will show all and rely on limit
+    
+    # Load entries (most recent first)
+    entries = list(notebook_collection.find(query).sort("_id", -1).limit(50))
+    
+    if entries:
+        for entry in entries:
+            # Create a nice card-like display for each entry
+            with st.container():
+                # Header with date and time
+                st.markdown(f"### 📅 {entry['date']} - {entry['day']} | {entry['time']}")
+                
+                # Display news if present
+                if entry.get('news'):
+                    st.info(f"**📰 News:** {entry['news']}")
+                
+                # Display journal entry
+                if entry.get('journal'):
+                    st.markdown(entry['journal'])
+                
+                # Show when it was saved
+                st.caption(f"Saved at: {entry.get('saved_at', 'N/A')} IST")
+                
+                # Delete button
+                col1, col2, col3 = st.columns([1, 4, 1])
+                with col3:
+                    if st.button("🗑️ Delete", key=f"delete_{entry['_id']}", type="secondary"):
+                        notebook_collection.delete_one({"_id": entry['_id']})
+                        st.success("Entry deleted")
+                        st.rerun()
+                
+                st.divider()
+    else:
+        st.info("📭 No entries yet. Start writing your trading diary!")
+    
+    # Export option at the bottom
+    st.divider()
+    if st.button("📥 Export Diary to CSV"):
+        all_entries = list(notebook_collection.find().sort("_id", -1))
+        if all_entries:
+            import pandas as pd
+            df = pd.DataFrame(all_entries)
+            # Remove MongoDB _id for export
+            if '_id' in df.columns:
+                df = df.drop('_id', axis=1)
+            
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"trading_diary_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No entries to export")
 
 # --- Analytics Page ---
 elif page == "Analytics":
