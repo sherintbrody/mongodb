@@ -8,6 +8,11 @@ from datetime import datetime, date, timedelta
 import numpy as np
 import hashlib
 import calendar
+from zoneinfo import ZoneInfo
+import json
+from pathlib import Path
+from collections import defaultdict
+import re
 
 st.set_page_config(
     page_title="Trading Journal Pro", 
@@ -110,6 +115,28 @@ st.markdown("""
         color: white !important;
         font-weight: 600 !important;
     }
+    
+    /* Diary Entry Box */
+    .entry-box {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 4px solid #1f77b4;
+        margin-bottom: 15px;
+    }
+    .dark-mode .entry-box {
+        background-color: #262730;
+        border-left: 4px solid #58a6ff;
+    }
+    .entry-time {
+        color: #1f77b4;
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+    .entry-content {
+        margin-top: 10px;
+        line-height: 1.8;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -136,6 +163,16 @@ def get_symbol_lists():
     return all_symbols
 
 ALL_SYMBOLS = get_symbol_lists()
+
+# --- Diary Storage Setup ---
+DATA_DIR = Path("notebook_data")
+DATA_DIR.mkdir(exist_ok=True)
+DATA_FILE = DATA_DIR / "notebook_entries.json"
+
+# Initialize diary data file if it doesn't exist
+if not DATA_FILE.exists():
+    with open(DATA_FILE, 'w') as f:
+        json.dump([], f)
 
 # --- Helper Functions (cached where possible) ---
 @st.cache_data
@@ -165,6 +202,87 @@ def parse_date_from_display(date_str):
         return dt.isoformat()
     except:
         return None
+
+def get_day_name(date_obj):
+    """Get day name from date object"""
+    return calendar.day_name[date_obj.weekday()]
+
+def get_ist_time():
+    """Get current time in IST"""
+    ist = ZoneInfo('Asia/Kolkata')
+    return datetime.now(ist)
+
+def get_ist_timestamp():
+    """Get IST timestamp string"""
+    ist = ZoneInfo('Asia/Kolkata')
+    return datetime.now(ist).strftime("%d-%m-%Y %I:%M:%S %p")
+
+# --- Diary Helper Functions ---
+def format_journal_text(text):
+    """Format journal text: each sentence on a new line"""
+    if not text:
+        return ""
+    
+    sentences = re.split(r'([.!?]+(?:\s+|$))', text)
+    formatted_lines = []
+    
+    for i in range(0, len(sentences)-1, 2):
+        sentence = sentences[i].strip()
+        punctuation = sentences[i+1].strip() if i+1 < len(sentences) else ''
+        if sentence:
+            formatted_lines.append(sentence + punctuation)
+    
+    if len(sentences) % 2 == 1 and sentences[-1].strip():
+        formatted_lines.append(sentences[-1].strip())
+    
+    return '<br>'.join(formatted_lines)
+
+def load_diary_entries():
+    """Load diary entries from JSON file"""
+    try:
+        with open(DATA_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_diary_entries(entries):
+    """Save diary entries to JSON file"""
+    with open(DATA_FILE, 'w') as f:
+        json.dump(entries, f, indent=2)
+
+def add_diary_entry(entry):
+    """Add a new diary entry"""
+    entries = load_diary_entries()
+    entry['id'] = datetime.now().timestamp()
+    entries.insert(0, entry)
+    save_diary_entries(entries)
+
+def delete_diary_entry(entry_id):
+    """Delete a diary entry by ID"""
+    entries = load_diary_entries()
+    entries = [e for e in entries if e.get('id') != entry_id]
+    save_diary_entries(entries)
+
+def group_diary_entries_by_date(entries):
+    """Group diary entries by date, maintaining order"""
+    grouped = defaultdict(list)
+    date_order = []
+    
+    for entry in entries:
+        date = entry.get('date')
+        if date not in date_order:
+            date_order.append(date)
+        grouped[date].append(entry)
+    
+    return grouped, date_order
+
+def get_dates_with_diary_entries():
+    """Get all unique dates that have diary entries"""
+    all_entries = load_diary_entries()
+    dates = set()
+    for entry in all_entries:
+        dates.add(entry.get('date'))
+    return dates
 
 def load_all_trades():
     """Load all trades from MongoDB - NO CACHING for fresh data"""
@@ -200,15 +318,12 @@ def migrate_old_data(_df):
     if 'entry_date' not in df.columns:
         df['entry_date'] = datetime.now()
     
-    # Add outcome field if not present
     if 'outcome' not in df.columns:
         df['outcome'] = None
     
-    # Add pnl field if not present
     if 'pnl' not in df.columns:
         df['pnl'] = None
     
-    # Add exit_date if not present
     if 'exit_date' not in df.columns:
         df['exit_date'] = None
     
@@ -260,7 +375,6 @@ def calculate_metrics(_df):
             'total_losses': 0
         }
     
-    # Filter out trades without P&L data
     trades_with_pnl = closed_trades[closed_trades['pnl'].notna()].copy()
     
     if trades_with_pnl.empty:
@@ -312,18 +426,15 @@ def get_equity_curve(_df):
     if closed_trades.empty:
         return pd.DataFrame()
     
-    # Filter trades with P&L
     trades_with_pnl = closed_trades[closed_trades['pnl'].notna()].copy()
     
     if trades_with_pnl.empty:
         return pd.DataFrame()
     
-    # Sort by entry date
     if 'entry_date' in trades_with_pnl.columns:
         trades_with_pnl['entry_date'] = pd.to_datetime(trades_with_pnl['entry_date'])
         trades_with_pnl = trades_with_pnl.sort_values('entry_date')
     
-    # Calculate cumulative P&L
     trades_with_pnl['cumulative_pnl'] = trades_with_pnl['pnl'].cumsum()
     
     return trades_with_pnl
@@ -366,6 +477,9 @@ if 'last_update' not in st.session_state:
 if 'data_version' not in st.session_state:
     st.session_state.data_version = 0
 
+if 'diary_form_key' not in st.session_state:
+    st.session_state.diary_form_key = 0
+
 def increment_data_version():
     """Increment data version to invalidate cache"""
     st.session_state.data_version += 1
@@ -378,8 +492,8 @@ with st.sidebar:
     
     selected = option_menu(
         menu_title=None,
-        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Calendar", "Analytics", "Settings"],
-        icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "calendar3", "bar-chart-line", "gear"],
+        options=["Dashboard", "New Trade", "Open Positions", "Trade History", "Calendar", "Diary", "Analytics", "Settings"],
+        icons=["speedometer2", "plus-circle", "briefcase", "clock-history", "calendar3", "journal-text", "bar-chart-line", "gear"],
         menu_icon="cast",
         default_index=0,
         styles={
@@ -952,8 +1066,6 @@ elif page == "Open Positions":
     else:
         st.info("📝 No trades recorded yet")
 
-
-
 # --- Trade History Page ---
 elif page == "Trade History":
     st.title("📉 Trade History")
@@ -1204,13 +1316,11 @@ elif page == "Trade History":
                 
     else:
         st.info("📭 No trades found")
+
 # --- Calendar Page ---
 elif page == "Calendar":
     st.title("📅 Trading Calendar")
     st.markdown("### Visual overview of your trading activity")
-    
-    import calendar
-    from datetime import datetime, date, timedelta
     
     # Load trades
     docs = load_all_trades()
@@ -1420,6 +1530,254 @@ elif page == "Calendar":
     else:
         st.info("📝 No trades recorded yet")
 
+# --- DIARY PAGE (NEW) ---
+elif page == "Diary":
+    st.title("🗒️ Trading Diary")
+    st.markdown("### Your personal trading journal and notes")
+    
+    # Simple entry form
+    st.subheader("✍️ Write Entry")
+    
+    # Use separate form key for diary
+    with st.form(f"diary_form_{st.session_state.diary_form_key}", clear_on_submit=True):
+        # Date and Time
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            ist_now = get_ist_time()
+            date_input = st.date_input("Date", ist_now.date())
+        
+        with col2:
+            day_name = get_day_name(date_input)
+            st.text_input("Day", value=day_name, disabled=True)
+        
+        with col3:
+            current_ist_time = get_ist_time().time()
+            time_input = st.time_input("Time (IST)", current_ist_time)
+        
+        # News field
+        news = st.text_input("📰 News/Events (optional)", placeholder="Any important news or events...")
+        
+        # Main journal entry
+        journal = st.text_area(
+            "📝 Journal Entry",
+            placeholder="Write your thoughts, observations, trades, lessons learned...",
+            height=250
+        )
+        
+        # Save button
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            submitted = st.form_submit_button("💾 Save Entry", use_container_width=True, type="primary")
+        
+        if submitted:
+            if journal or news:
+                ist_timestamp = get_ist_timestamp()
+                entry = {
+                    "date": date_input.strftime("%d-%m-%Y"),
+                    "day": day_name,
+                    "time": time_input.strftime("%I:%M %p"),
+                    "news": news,
+                    "journal": journal,
+                    "saved_at": ist_timestamp
+                }
+                
+                add_diary_entry(entry)
+                st.success(f"✅ Entry saved at {ist_timestamp} IST")
+                st.session_state.diary_form_key += 1
+                st.rerun()
+            else:
+                st.error("Please write something in your journal")
+    
+    st.divider()
+    
+    # View entries
+    st.subheader("📖 Previous Entries")
+    
+    # View options with tabs
+    tab1, tab2 = st.tabs(["📅 Calendar View", "📋 List View"])
+    
+    # Load all diary entries
+    all_entries = load_diary_entries()
+    
+    with tab1:
+        st.markdown("#### Select a date to view entries")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            selected_date = st.date_input(
+                "Pick a date",
+                get_ist_time().date(),
+                key="diary_calendar_picker"
+            )
+        
+        with col2:
+            dates_with_entries = get_dates_with_diary_entries()
+            if dates_with_entries:
+                st.info(f"📊 You have entries on {len(dates_with_entries)} different days")
+        
+        selected_date_str = selected_date.strftime("%d-%m-%Y")
+        calendar_filtered = [e for e in all_entries if e.get('date') == selected_date_str]
+        
+        st.markdown("---")
+        
+        if calendar_filtered:
+            day_name = get_day_name(selected_date)
+            st.markdown(f"### 📅 {selected_date_str} - {day_name}")
+            st.caption(f"💭 {len(calendar_filtered)} {'entry' if len(calendar_filtered) == 1 else 'entries'} on this day")
+            
+            for idx, entry in enumerate(calendar_filtered, 1):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="entry-box">
+                            <div class="entry-time">⏰ {entry['time']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if entry.get('news'):
+                            st.info(f"**📰 News:** {entry['news']}")
+                        
+                        if entry.get('journal'):
+                            formatted_journal = format_journal_text(entry['journal'])
+                            st.markdown(f"<div class='entry-content'>{formatted_journal}</div>", unsafe_allow_html=True)
+                        
+                        st.caption(f"📝 Saved at: {entry.get('saved_at', 'N/A')} IST")
+                
+                with col2:
+                    st.write("")
+                    st.write("")
+                    if st.button("🗑️ Delete", key=f"diary_cal_delete_{entry.get('id')}", use_container_width=True):
+                        delete_diary_entry(entry.get('id'))
+                        st.success("Entry deleted")
+                        st.rerun()
+                
+                if idx < len(calendar_filtered):
+                    st.markdown("---")
+        else:
+            st.info(f"📭 No entries found for {selected_date_str}")
+    
+    with tab2:
+        view_option = st.selectbox(
+            "Show entries from",
+            ["All", "Today", "Last 7 Days", "Last 30 Days"],
+            index=0
+        )
+        
+        filtered_entries = []
+        if view_option == "All":
+            filtered_entries = all_entries
+        elif view_option == "Today":
+            today = get_ist_time().strftime("%d-%m-%Y")
+            filtered_entries = [e for e in all_entries if e.get('date') == today]
+        elif view_option == "Last 7 Days":
+            filtered_entries = all_entries[:20]
+        elif view_option == "Last 30 Days":
+            filtered_entries = all_entries[:50]
+        
+        st.markdown("---")
+        
+        if filtered_entries:
+            grouped_entries, date_order = group_diary_entries_by_date(filtered_entries)
+            
+            for date in date_order:
+                entries_for_date = grouped_entries[date]
+                entry_count = len(entries_for_date)
+                day_name = entries_for_date[0].get('day', '')
+                
+                st.markdown(f"### 📅 {date} - {day_name}")
+                st.caption(f"💭 {entry_count} {'entry' if entry_count == 1 else 'entries'} on this day")
+                
+                for idx, entry in enumerate(entries_for_date):
+                    col1, col2 = st.columns([4, 1])
+                    
+                    with col1:
+                        with st.container():
+                            st.markdown(f"""
+                            <div class="entry-box">
+                                <div class="entry-time">⏰ {entry['time']}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            if entry.get('news'):
+                                st.info(f"**📰 News:** {entry['news']}")
+                            
+                            if entry.get('journal'):
+                                formatted_journal = format_journal_text(entry['journal'])
+                                st.markdown(f"<div class='entry-content'>{formatted_journal}</div>", unsafe_allow_html=True)
+                            
+                            st.caption(f"📝 Saved at: {entry.get('saved_at', 'N/A')} IST")
+                    
+                    with col2:
+                        st.write("")
+                        st.write("")
+                        if st.button("🗑️ Delete", key=f"diary_list_delete_{entry.get('id')}", use_container_width=True):
+                            delete_diary_entry(entry.get('id'))
+                            st.success("Entry deleted")
+                            st.rerun()
+                    
+                    if idx < len(entries_for_date) - 1:
+                        st.markdown("---")
+                
+                st.divider()
+        else:
+            st.info("📭 No entries yet. Start writing your trading diary!")
+    
+    # Export options
+    st.divider()
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📥 Export Diary to CSV", use_container_width=True):
+            all_entries = load_diary_entries()
+            if all_entries:
+                df = pd.DataFrame(all_entries)
+                if 'id' in df.columns:
+                    df = df.drop('id', axis=1)
+                
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"trading_diary_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("No entries to export")
+    
+    with col2:
+        if st.button("📥 Export Diary to JSON", use_container_width=True):
+            all_entries = load_diary_entries()
+            if all_entries:
+                export_entries = [{k: v for k, v in entry.items() if k != 'id'} for entry in all_entries]
+                json_str = json.dumps(export_entries, indent=2)
+                
+                st.download_button(
+                    label="Download JSON",
+                    data=json_str,
+                    file_name=f"trading_diary_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
+            else:
+                st.info("No entries to export")
+    
+    with st.expander("ℹ️ Diary Storage Info"):
+        st.info(f"""
+        Your diary entries are stored locally in: `{DATA_FILE}`
+        
+        **Note:** 
+        - Data is stored in JSON format
+        - All times are in IST (Indian Standard Time)
+        - Each sentence in your journal will appear on a new line
+        - Entries are grouped by date for easy viewing
+        - Use Calendar View to see entries for specific dates
+        - Use List View to browse all entries chronologically
+        - You can export your data anytime using the export buttons above
+        - Times are displayed in 12-hour format (AM/PM)
+        """)
 
 # --- Analytics Page ---
 elif page == "Analytics":
@@ -2018,6 +2376,7 @@ elif page == "Settings":
             - 🎯 Win/Loss/TSL/BE outcome tracking
             - 💰 Manual P&L entry
             - ⚠️ Risk management tools
+            - 🗒️ **Trading Diary/Journal**
             """)
         
         with col2:
@@ -2028,6 +2387,7 @@ elif page == "Settings":
             - 🗑️ Flexible delete options
             - ✏️ Editable trade history
             - 🔄 Real-time data sync
+            - 📅 Calendar views for trades & diary
             """)
         
         st.divider()
@@ -2057,6 +2417,7 @@ elif page == "Settings":
         **3. Review Regularly** - Analyze your stats weekly  
         **4. Set Goals** - Use data to improve your win rate  
         **5. Learn from Losses** - They're your best teachers
+        **6. Use the Diary** - Track market observations and thoughts
         """)
 
 # Footer
