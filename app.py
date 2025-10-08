@@ -27,6 +27,10 @@ st.set_page_config(
 # --- Modern Custom CSS ---
 st.markdown("""
 <style>
+    /* Import Material Icons */
+    @import url('https://fonts.googleapis.com/css2?family=Material+Icons');
+    @import url('https://fonts.googleapis.com/css2?family=Material+Icons+Outlined');
+    
     /* Main theme colors */
     :root {
         --primary-color: #1f77b4;
