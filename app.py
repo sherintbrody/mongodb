@@ -31,6 +31,10 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Material+Icons');
     @import url('https://fonts.googleapis.com/css2?family=Material+Icons+Outlined');
     
+    /* Fix for sidebar collapse icon */
+    [data-testid="collapsedControl"] {
+        font-family: 'Material Icons' !important;
+    } 
     /* Main theme colors */
     :root {
         --primary-color: #1f77b4;
