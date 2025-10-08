@@ -1550,7 +1550,7 @@ elif page == "Diary":
             time_input = st.time_input("Time (IST)", current_ist_time)
         
         # News field
-        news = st.text_input("📰 News/Events (optional)", placeholder="Any important news or events...")
+        news = st.text_input("📰 News/Events ", placeholder="Any important news or events...")
         
         # Main journal entry
         journal = st.text_area(
@@ -1610,8 +1610,7 @@ elif page == "Diary":
         
         with col2:
             dates_with_entries = get_dates_with_diary_entries()
-            if dates_with_entries:
-                st.info(f"📊 You have entries on {len(dates_with_entries)} different days")
+            
         
         selected_date_str = selected_date.strftime("%d-%m-%Y")
         calendar_filtered = [e for e in all_entries if e.get('date') == selected_date_str]
