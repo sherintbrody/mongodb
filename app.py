@@ -1428,14 +1428,6 @@ elif page == "🗒️ Trading Notebook":
     # Create a separate collection for notebook entries
     notebook_collection = db["notebook_entries"]
     
-    # Helper functions
-    def get_day_name(date_obj):
-        return calendar.day_name[date_obj.weekday()]
-    
-    def get_ist_timestamp():
-        ist = pytz.timezone('Asia/Kolkata')
-        return datetime.now(ist).strftime("%d-%m-%Y %I:%M:%S %p")
-    
     # Simple entry form
     st.subheader("✍️ Write Entry")
     
@@ -1469,7 +1461,7 @@ elif page == "🗒️ Trading Notebook":
             submitted = st.form_submit_button("💾 Save Entry", use_container_width=True, type="primary")
         
         if submitted:
-            if journal or news:  # At least one should be filled
+            if journal or news:
                 ist_timestamp = get_ist_timestamp()
                 entry = {
                     "date": date_input.strftime("%d-%m-%Y"),
@@ -1502,11 +1494,6 @@ elif page == "🗒️ Trading Notebook":
     if view_option == "Today":
         today = datetime.now().strftime("%d-%m-%Y")
         query["date"] = today
-    elif view_option == "Last 7 Days":
-        # Note: This is a simple approach, for production you might want to use proper date comparison
-        pass  # Will show all and rely on limit
-    elif view_option == "Last 30 Days":
-        pass  # Will show all and rely on limit
     
     # Load entries (most recent first)
     entries = list(notebook_collection.find(query).sort("_id", -1).limit(50))
@@ -1546,9 +1533,7 @@ elif page == "🗒️ Trading Notebook":
     if st.button("📥 Export Diary to CSV"):
         all_entries = list(notebook_collection.find().sort("_id", -1))
         if all_entries:
-            import pandas as pd
             df = pd.DataFrame(all_entries)
-            # Remove MongoDB _id for export
             if '_id' in df.columns:
                 df = df.drop('_id', axis=1)
             
@@ -1561,6 +1546,7 @@ elif page == "🗒️ Trading Notebook":
             )
         else:
             st.info("No entries to export")
+
 
 # --- Analytics Page ---
 elif page == "Analytics":
