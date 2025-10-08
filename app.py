@@ -1773,22 +1773,7 @@ elif page == "Diary":
             else:
                 st.info("No entries to export")
     
-    with st.expander("ℹ️ Diary Storage Info"):
-        st.info(f"""
-        Your diary entries are stored in MongoDB: `{db.name}.diary_entries`
-        
-        **Note:** 
-        - Data is stored in MongoDB (cloud database)
-        - All times are in IST (Indian Standard Time)
-        - Each sentence in your journal will appear on a new line
-        - Entries are grouped by date for easy viewing
-        - Use Calendar View to see entries for specific dates
-        - Use List View to browse all entries chronologically
-        - You can export your data anytime using the export buttons above
-        - Times are displayed in 12-hour format (AM/PM)
-        - Data syncs across devices when using the same MongoDB database
-        """)
-
+    
 # --- Analytics Page (keeping it short for character limit) ---
 elif page == "Analytics":
     st.title("📊 Trading Analytics")
