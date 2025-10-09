@@ -31,10 +31,17 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Material+Icons');
     @import url('https://fonts.googleapis.com/css2?family=Material+Icons+Outlined');
     
-    /* Fix for sidebar collapse icon */
+    /* Fix for sidebar collapse icon - UPDATED */
     [data-testid="collapsedControl"] {
-        font-family: 'Material Icons' !important;
-    } 
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    [data-testid="collapsedControl"] svg {
+        display: block !important;
+    }
+    
     /* Main theme colors */
     :root {
         --primary-color: #1f77b4;
@@ -525,7 +532,7 @@ with st.sidebar:
 # Map selected option to page
 page = selected
 
-# --- Dashboard Page ---
+# --- Dashboard Page (KEEPING SAME) ---
 if page == "Dashboard":
     st.title("📊 Trading Dashboard")
     st.markdown("### Overview of Your Trading Performance")
@@ -799,7 +806,7 @@ if page == "Dashboard":
     else:
         st.info("📝 No trades recorded yet. Start by adding a new trade!")
 
-# --- New Trade Page ---
+# --- New Trade Page (KEEPING SAME) ---
 elif page == "New Trade":
     st.title("➕ Add New Trade")
     st.markdown("### Record your trade details")
@@ -951,7 +958,7 @@ elif page == "New Trade":
             else:
                 st.error("❌ Please fill in all required fields marked with *")
 
-# --- Open Positions Page ---
+# --- Open Positions Page (KEEPING SAME) ---
 elif page == "Open Positions":
     st.title("📈 Open Positions")
     st.markdown("### Active trades currently in the market")
@@ -1068,7 +1075,7 @@ elif page == "Open Positions":
     else:
         st.info("📝 No trades recorded yet")
 
-# --- Trade History Page ---
+# --- Trade History Page (KEEPING SAME) ---
 elif page == "Trade History":
     st.title("📉 Trade History")
     st.markdown("### Complete record of all your trades")
@@ -1319,7 +1326,7 @@ elif page == "Trade History":
     else:
         st.info("📭 No trades found")
 
-# --- Calendar Page ---
+# --- Calendar Page (KEEPING SAME) ---
 elif page == "Calendar":
     st.title("📅 Trading Calendar")
     st.markdown("### Visual overview of your trading activity")
@@ -1532,7 +1539,7 @@ elif page == "Calendar":
     else:
         st.info("📝 No trades recorded yet")
 
-# --- DIARY PAGE ---
+# --- DIARY PAGE (KEEPING SAME) ---
 elif page == "Diary":
     st.title("🗒️ Trading Diary")
     st.markdown("### Your personal trading journal and notes")
@@ -1772,11 +1779,10 @@ elif page == "Diary":
                 )
             else:
                 st.info("No entries to export")
-    
-    
-# --- Analytics Page (keeping it short for character limit) ---
+
+# --- ENHANCED ANALYTICS PAGE (ONLY THIS SECTION CHANGED) ---
 elif page == "Analytics":
-    st.title("📊 Trading Analytics")
+    st.title("📊 Advanced Trading Analytics")
     st.markdown("### Deep dive into your trading performance")
     
     docs = load_all_trades()
@@ -1790,69 +1796,576 @@ elif page == "Analytics":
             trades_with_pnl = closed_df[closed_df['pnl'].notna()].copy()
             
             if not trades_with_pnl.empty:
-                tab1, tab2, tab3, tab4 = st.tabs(["📈 Performance", "⚠️ Risk Analysis", "🎯 Strategy Analysis", "🧠 Behavioral Analysis"])
+                # Create tabs for different analytics sections
+                tab1, tab2, tab3, tab4 = st.tabs([
+                    "📈 Performance Metrics", 
+                    "⚠️ Risk Analysis", 
+                    "🎯 Strategy & Instrument Analysis", 
+                    "🧠 Behavioral Insights"
+                ])
                 
+                # --- TAB 1: PERFORMANCE METRICS ---
                 with tab1:
-                    st.markdown("### Performance Metrics")
+                    st.markdown("### 📈 Performance Overview")
+                    
+                    # Enhanced metrics row
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    
+                    metrics = calculate_metrics(df)
+                    
+                    with col1:
+                        st.metric("💰 Total P&L", f"${metrics['total_pnl']:.2f}")
+                    with col2:
+                        st.metric("🎯 Win Rate", f"{metrics['win_rate']:.1f}%")
+                    with col3:
+                        st.metric("📈 Profit Factor", f"{metrics['profit_factor']:.2f}")
+                    with col4:
+                        st.metric("⚡ Sharpe Ratio", f"{metrics['sharpe_ratio']:.2f}")
+                    with col5:
+                        avg_pnl = trades_with_pnl['pnl'].mean()
+                        st.metric("📊 Avg Trade", f"${avg_pnl:.2f}")
+                    
+                    st.divider()
+                    
+                    # Equity Curve
                     equity_df = get_equity_curve(df)
                     
                     if not equity_df.empty:
-                        st.markdown("#### 📈 Equity Curve (Cumulative P&L)")
-                        trade_numbers = [0] + list(range(1, len(equity_df) + 1))
-                        cumulative_values = [0] + equity_df['cumulative_pnl'].tolist()
+                        col1, col2 = st.columns([2, 1])
                         
-                        fig = go.Figure()
-                        line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
-                        fill_color = 'rgba(0, 200, 83, 0.2)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.2)'
+                        with col1:
+                            st.markdown("#### 📈 Equity Curve (Cumulative P&L)")
+                            
+                            trade_numbers = [0] + list(range(1, len(equity_df) + 1))
+                            cumulative_values = [0] + equity_df['cumulative_pnl'].tolist()
+                            
+                            fig = go.Figure()
+                            line_color = '#00c853' if cumulative_values[-1] >= 0 else '#ff1744'
+                            fill_color = 'rgba(0, 200, 83, 0.2)' if cumulative_values[-1] >= 0 else 'rgba(255, 23, 68, 0.2)'
+                            
+                            fig.add_trace(go.Scatter(
+                                x=trade_numbers,
+                                y=cumulative_values,
+                                mode='lines+markers',
+                                name='Cumulative P&L',
+                                line=dict(color=line_color, width=2),
+                                marker=dict(size=5, color=line_color),
+                                fill='tozeroy',
+                                fillcolor=fill_color
+                            ))
+                            
+                            fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+                            
+                            layout = get_chart_layout()
+                            layout['xaxis_title'] = "Trade Number"
+                            layout['yaxis_title'] = "Cumulative P&L ($)"
+                            layout['height'] = 450
+                            layout['xaxis']['dtick'] = max(1, len(trade_numbers) // 20)
+                            fig.update_layout(**layout)
+                            
+                            st.plotly_chart(fig, use_container_width=True)
                         
-                        fig.add_trace(go.Scatter(
-                            x=trade_numbers,
-                            y=cumulative_values,
-                            mode='lines+markers',
-                            name='Cumulative P&L',
-                            line=dict(color=line_color, width=2),
-                            marker=dict(size=6, color=line_color, symbol='circle', line=dict(color='white', width=1)),
-                            fill='tozeroy',
-                            fillcolor=fill_color
-                        ))
+                        with col2:
+                            st.markdown("#### 📊 Monthly Performance")
+                            
+                            # Add month-year column
+                            if 'entry_date' in equity_df.columns:
+                                equity_df['month_year'] = pd.to_datetime(equity_df['entry_date']).dt.to_period('M').astype(str)
+                                monthly_pnl = equity_df.groupby('month_year')['pnl'].sum().reset_index()
+                                
+                                fig = go.Figure()
+                                colors = ['#00c853' if x > 0 else '#ff1744' for x in monthly_pnl['pnl']]
+                                
+                                fig.add_trace(go.Bar(
+                                    x=monthly_pnl['month_year'],
+                                    y=monthly_pnl['pnl'],
+                                    marker_color=colors,
+                                    name='Monthly P&L'
+                                ))
+                                
+                                layout = get_chart_layout()
+                                layout['xaxis_title'] = "Month"
+                                layout['yaxis_title'] = "P&L ($)"
+                                layout['height'] = 450
+                                layout['showlegend'] = False
+                                fig.update_layout(**layout)
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.divider()
+                    
+                    # NEW: Instrument-Based P&L Analysis
+                    if 'symbol' in trades_with_pnl.columns:
+                        st.markdown("#### 🎯 Instrument Performance Analysis")
                         
-                        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-                        layout = get_chart_layout()
-                        layout['xaxis_title'] = "Trade Number"
-                        layout['yaxis_title'] = "Cumulative P&L ($)"
-                        layout['height'] = 500
-                        layout['xaxis']['dtick'] = 1
-                        fig.update_layout(**layout)
-                        st.plotly_chart(fig, use_container_width=True)
+                        # Calculate P&L by instrument
+                        instrument_pnl = trades_with_pnl.groupby('symbol').agg({
+                            'pnl': ['sum', 'mean', 'count']
+                        }).reset_index()
+                        instrument_pnl.columns = ['Symbol', 'Total P&L', 'Avg P&L', 'Trades']
+                        instrument_pnl = instrument_pnl.sort_values('Total P&L', ascending=False)
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("##### 📊 Total P&L by Instrument")
+                            
+                            # Top 10 instruments by total P&L
+                            top_instruments = instrument_pnl.head(10)
+                            
+                            fig = go.Figure()
+                            colors = ['#00c853' if x > 0 else '#ff1744' for x in top_instruments['Total P&L']]
+                            
+                            fig.add_trace(go.Bar(
+                                x=top_instruments['Symbol'],
+                                y=top_instruments['Total P&L'],
+                                marker_color=colors,
+                                text=[f"${x:.2f}" for x in top_instruments['Total P&L']],
+                                textposition='outside',
+                                name='Total P&L'
+                            ))
+                            
+                            layout = get_chart_layout()
+                            layout['xaxis_title'] = "Instrument"
+                            layout['yaxis_title'] = "Total P&L ($)"
+                            layout['height'] = 400
+                            layout['showlegend'] = False
+                            fig.update_layout(**layout)
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        with col2:
+                            st.markdown("##### 🎯 Win Rate by Instrument")
+                            
+                            # Calculate win rate by instrument
+                            instrument_winrate = []
+                            for symbol in trades_with_pnl['symbol'].unique():
+                                symbol_trades = trades_with_pnl[trades_with_pnl['symbol'] == symbol]
+                                total = len(symbol_trades)
+                                wins = len(symbol_trades[symbol_trades['pnl'] > 0])
+                                win_rate = (wins / total * 100) if total > 0 else 0
+                                instrument_winrate.append({
+                                    'Symbol': symbol,
+                                    'Win Rate': win_rate,
+                                    'Trades': total
+                                })
+                            
+                            winrate_df = pd.DataFrame(instrument_winrate)
+                            winrate_df = winrate_df[winrate_df['Trades'] >= 3]  # Only show instruments with 3+ trades
+                            winrate_df = winrate_df.sort_values('Win Rate', ascending=False).head(10)
+                            
+                            if not winrate_df.empty:
+                                fig = go.Figure()
+                                colors = ['#00c853' if x >= 50 else '#ffa726' if x >= 40 else '#ff1744' 
+                                         for x in winrate_df['Win Rate']]
+                                
+                                fig.add_trace(go.Bar(
+                                    x=winrate_df['Symbol'],
+                                    y=winrate_df['Win Rate'],
+                                    marker_color=colors,
+                                    text=[f"{x:.1f}%" for x in winrate_df['Win Rate']],
+                                    textposition='outside',
+                                    name='Win Rate'
+                                ))
+                                
+                                fig.add_hline(y=50, line_dash="dash", line_color="white", opacity=0.5)
+                                
+                                layout = get_chart_layout()
+                                layout['xaxis_title'] = "Instrument"
+                                layout['yaxis_title'] = "Win Rate (%)"
+                                layout['height'] = 400
+                                layout['showlegend'] = False
+                                fig.update_layout(**layout)
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("Not enough trades per instrument (minimum 3)")
+                        
+                        # Instrument Performance Table
+                        st.markdown("##### 📋 Detailed Instrument Performance")
+                        
+                        # Enhanced table with more metrics
+                        detailed_instrument_metrics = []
+                        for symbol in trades_with_pnl['symbol'].unique():
+                            symbol_trades = trades_with_pnl[trades_with_pnl['symbol'] == symbol]
+                            total = len(symbol_trades)
+                            wins = len(symbol_trades[symbol_trades['pnl'] > 0])
+                            losses = len(symbol_trades[symbol_trades['pnl'] < 0])
+                            total_pnl = symbol_trades['pnl'].sum()
+                            avg_pnl = symbol_trades['pnl'].mean()
+                            win_rate = (wins / total * 100) if total > 0 else 0
+                            best_trade = symbol_trades['pnl'].max()
+                            worst_trade = symbol_trades['pnl'].min()
+                            
+                            detailed_instrument_metrics.append({
+                                'Symbol': symbol,
+                                'Total Trades': total,
+                                'Wins': wins,
+                                'Losses': losses,
+                                'Win Rate': f"{win_rate:.1f}%",
+                                'Total P&L': f"${total_pnl:.2f}",
+                                'Avg P&L': f"${avg_pnl:.2f}",
+                                'Best Trade': f"${best_trade:.2f}",
+                                'Worst Trade': f"${worst_trade:.2f}"
+                            })
+                        
+                        detailed_df = pd.DataFrame(detailed_instrument_metrics)
+                        detailed_df = detailed_df.sort_values('Total Trades', ascending=False)
+                        
+                        st.dataframe(
+                            detailed_df,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
                 
+                # --- TAB 2: RISK ANALYSIS ---
                 with tab2:
-                    st.markdown("### Risk Analysis")
+                    st.markdown("### ⚠️ Risk Management Analysis")
+                    
                     col1, col2, col3, col4 = st.columns(4)
+                    
+                    # Calculate risk metrics
+                    max_drawdown = trades_with_pnl['pnl'].cumsum().min()
+                    max_profit = trades_with_pnl['pnl'].cumsum().max()
+                    avg_win_size = trades_with_pnl[trades_with_pnl['pnl'] > 0]['pnl'].mean() if len(trades_with_pnl[trades_with_pnl['pnl'] > 0]) > 0 else 0
+                    avg_loss_size = abs(trades_with_pnl[trades_with_pnl['pnl'] < 0]['pnl'].mean()) if len(trades_with_pnl[trades_with_pnl['pnl'] < 0]) > 0 else 0
+                    
                     with col1:
-                        max_drawdown = trades_with_pnl['pnl'].cumsum().min()
                         st.metric("📉 Max Drawdown", f"${max_drawdown:.2f}")
                     with col2:
-                        max_profit = trades_with_pnl['pnl'].cumsum().max()
-                        st.metric("📈 Max Profit", f"${max_profit:.2f}")
+                        st.metric("📈 Max Profit Run", f"${max_profit:.2f}")
+                    with col3:
+                        st.metric("▲ Avg Win Size", f"${avg_win_size:.2f}")
+                    with col4:
+                        st.metric("▼ Avg Loss Size", f"${avg_loss_size:.2f}")
+                    
+                    st.divider()
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("#### 📊 P&L Distribution Histogram")
+                        
+                        fig = go.Figure()
+                        fig.add_trace(go.Histogram(
+                            x=trades_with_pnl['pnl'],
+                            nbinsx=30,
+                            marker_color='#2196f3',
+                            opacity=0.7
+                        ))
+                        
+                        fig.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
+                        
+                        layout = get_chart_layout()
+                        layout['xaxis_title'] = "P&L ($)"
+                        layout['yaxis_title'] = "Frequency"
+                        layout['height'] = 400
+                        fig.update_layout(**layout)
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("#### 📉 Drawdown Analysis")
+                        
+                        # Calculate running drawdown
+                        cumulative = trades_with_pnl['pnl'].cumsum()
+                        running_max = cumulative.cummax()
+                        drawdown = cumulative - running_max
+                        
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=list(range(len(drawdown))),
+                            y=drawdown,
+                            mode='lines',
+                            name='Drawdown',
+                            fill='tozeroy',
+                            line=dict(color='#ff1744', width=2),
+                            fillcolor='rgba(255, 23, 68, 0.2)'
+                        ))
+                        
+                        layout = get_chart_layout()
+                        layout['xaxis_title'] = "Trade Number"
+                        layout['yaxis_title'] = "Drawdown ($)"
+                        layout['height'] = 400
+                        fig.update_layout(**layout)
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.divider()
+                    
+                    # Risk/Reward analysis
+                    if 'risk_reward_ratio' in trades_with_pnl.columns:
+                        st.markdown("#### 🎯 Risk/Reward Ratio Analysis")
+                        
+                        rr_trades = trades_with_pnl[trades_with_pnl['risk_reward_ratio'].notna()]
+                        
+                        if not rr_trades.empty:
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                avg_rr = rr_trades['risk_reward_ratio'].mean()
+                                st.metric("Average R:R Ratio", f"{avg_rr:.2f}")
+                            
+                            with col2:
+                                # RR distribution
+                                fig = go.Figure()
+                                fig.add_trace(go.Histogram(
+                                    x=rr_trades['risk_reward_ratio'],
+                                    nbinsx=20,
+                                    marker_color='#00c853',
+                                    opacity=0.7
+                                ))
+                                
+                                layout = get_chart_layout()
+                                layout['xaxis_title'] = "Risk/Reward Ratio"
+                                layout['yaxis_title'] = "Frequency"
+                                layout['height'] = 300
+                                fig.update_layout(**layout)
+                                
+                                st.plotly_chart(fig, use_container_width=True)
                 
+                # --- TAB 3: STRATEGY & INSTRUMENT ANALYSIS ---
                 with tab3:
+                    st.markdown("### 🎯 Strategy & Trading Analysis")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    # Strategy Performance
                     if 'strategy' in trades_with_pnl.columns:
-                        st.markdown("### Strategy Analysis")
-                        st.info("Strategy data available")
-                    else:
-                        st.info("📝 No strategy data available")
+                        with col1:
+                            st.markdown("#### 📋 Strategy Performance")
+                            
+                            strategy_pnl = trades_with_pnl.groupby('strategy').agg({
+                                'pnl': ['sum', 'mean', 'count']
+                            }).reset_index()
+                            strategy_pnl.columns = ['Strategy', 'Total P&L', 'Avg P&L', 'Trades']
+                            
+                            # Calculate win rate per strategy
+                            win_rates = []
+                            for strategy in trades_with_pnl['strategy'].unique():
+                                strat_trades = trades_with_pnl[trades_with_pnl['strategy'] == strategy]
+                                wins = len(strat_trades[strat_trades['pnl'] > 0])
+                                total = len(strat_trades)
+                                win_rates.append((wins / total * 100) if total > 0 else 0)
+                            
+                            strategy_pnl['Win Rate'] = win_rates
+                            strategy_pnl = strategy_pnl.sort_values('Total P&L', ascending=False)
+                            
+                            st.dataframe(
+                                strategy_pnl.style.format({
+                                    'Total P&L': '${:.2f}',
+                                    'Avg P&L': '${:.2f}',
+                                    'Win Rate': '{:.1f}%'
+                                }),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                    
+                    # Timeframe Performance
+                    if 'timeframe' in trades_with_pnl.columns:
+                        with col2:
+                            st.markdown("#### ⏰ Timeframe Performance")
+                            
+                            timeframe_pnl = trades_with_pnl.groupby('timeframe').agg({
+                                'pnl': ['sum', 'mean', 'count']
+                            }).reset_index()
+                            timeframe_pnl.columns = ['Timeframe', 'Total P&L', 'Avg P&L', 'Trades']
+                            timeframe_pnl = timeframe_pnl.sort_values('Total P&L', ascending=False)
+                            
+                            st.dataframe(
+                                timeframe_pnl.style.format({
+                                    'Total P&L': '${:.2f}',
+                                    'Avg P&L': '${:.2f}'
+                                }),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                    
+                    st.divider()
+                    
+                    # Side (Long vs Short) Performance
+                    if 'side' in trades_with_pnl.columns:
+                        st.markdown("#### 📊 Long vs Short Performance")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        long_trades = trades_with_pnl[trades_with_pnl['side'] == 'LONG']
+                        short_trades = trades_with_pnl[trades_with_pnl['side'] == 'SHORT']
+                        
+                        with col1:
+                            if not long_trades.empty:
+                                long_pnl = long_trades['pnl'].sum()
+                                long_count = len(long_trades)
+                                long_wins = len(long_trades[long_trades['pnl'] > 0])
+                                long_winrate = (long_wins / long_count * 100) if long_count > 0 else 0
+                                
+                                st.metric("📈 Long Trades", long_count)
+                                st.metric("Long P&L", f"${long_pnl:.2f}")
+                                st.metric("Long Win Rate", f"{long_winrate:.1f}%")
+                        
+                        with col2:
+                            if not short_trades.empty:
+                                short_pnl = short_trades['pnl'].sum()
+                                short_count = len(short_trades)
+                                short_wins = len(short_trades[short_trades['pnl'] > 0])
+                                short_winrate = (short_wins / short_count * 100) if short_count > 0 else 0
+                                
+                                st.metric("📉 Short Trades", short_count)
+                                st.metric("Short P&L", f"${short_pnl:.2f}")
+                                st.metric("Short Win Rate", f"{short_winrate:.1f}%")
+                        
+                        with col3:
+                            # Pie chart comparison
+                            fig = go.Figure(data=[go.Pie(
+                                labels=['Long', 'Short'],
+                                values=[len(long_trades), len(short_trades)],
+                                marker=dict(colors=['#00c853', '#ff1744']),
+                                hole=.4
+                            )])
+                            
+                            layout = get_chart_layout()
+                            layout['height'] = 300
+                            layout['showlegend'] = True
+                            layout['legend'] = dict(font=dict(color='white'))
+                            fig.update_layout(**layout)
+                            
+                            st.plotly_chart(fig, use_container_width=True)
                 
+                # --- TAB 4: BEHAVIORAL INSIGHTS ---
                 with tab4:
-                    st.markdown("### Behavioral Analysis")
-                    st.info("Behavioral data insights")
+                    st.markdown("### 🧠 Behavioral & Psychological Analysis")
+                    
+                    # Emotion-based performance
+                    if 'emotion' in trades_with_pnl.columns:
+                        st.markdown("#### 😊 Emotional State Performance")
+                        
+                        emotion_pnl = trades_with_pnl.groupby('emotion').agg({
+                            'pnl': ['sum', 'mean', 'count']
+                        }).reset_index()
+                        emotion_pnl.columns = ['Emotion', 'Total P&L', 'Avg P&L', 'Trades']
+                        emotion_pnl = emotion_pnl.sort_values('Total P&L', ascending=False)
+                        
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            fig = go.Figure()
+                            colors = ['#00c853' if x > 0 else '#ff1744' for x in emotion_pnl['Total P&L']]
+                            
+                            fig.add_trace(go.Bar(
+                                x=emotion_pnl['Emotion'],
+                                y=emotion_pnl['Total P&L'],
+                                marker_color=colors,
+                                text=[f"${x:.2f}" for x in emotion_pnl['Total P&L']],
+                                textposition='outside'
+                            ))
+                            
+                            layout = get_chart_layout()
+                            layout['xaxis_title'] = "Emotional State"
+                            layout['yaxis_title'] = "Total P&L ($)"
+                            layout['height'] = 400
+                            fig.update_layout(**layout)
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        with col2:
+                            st.dataframe(
+                                emotion_pnl.style.format({
+                                    'Total P&L': '${:.2f}',
+                                    'Avg P&L': '${:.2f}'
+                                }),
+                                use_container_width=True,
+                                hide_index=True,
+                                height=400
+                            )
+                    
+                    st.divider()
+                    
+                    # Confidence level performance
+                    if 'confidence_level' in trades_with_pnl.columns:
+                        st.markdown("#### 🎯 Confidence Level vs Performance")
+                        
+                        confidence_pnl = trades_with_pnl.groupby('confidence_level').agg({
+                            'pnl': ['sum', 'mean', 'count']
+                        }).reset_index()
+                        confidence_pnl.columns = ['Confidence', 'Total P&L', 'Avg P&L', 'Trades']
+                        
+                        fig = go.Figure()
+                        
+                        fig.add_trace(go.Scatter(
+                            x=confidence_pnl['Confidence'],
+                            y=confidence_pnl['Avg P&L'],
+                            mode='markers+lines',
+                            marker=dict(size=confidence_pnl['Trades']*2, color='#2196f3'),
+                            name='Avg P&L',
+                            line=dict(color='#2196f3', width=2)
+                        ))
+                        
+                        layout = get_chart_layout()
+                        layout['xaxis_title'] = "Confidence Level (1-10)"
+                        layout['yaxis_title'] = "Average P&L ($)"
+                        layout['height'] = 400
+                        fig.update_layout(**layout)
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        st.info("💡 **Insight**: Marker size represents number of trades. Look for patterns between confidence and performance.")
+                    
+                    st.divider()
+                    
+                    # Trading streaks
+                    st.markdown("#### 🔥 Winning & Losing Streaks")
+                    
+                    # Calculate streaks
+                    wins_losses = ['W' if x > 0 else 'L' for x in trades_with_pnl['pnl']]
+                    
+                    current_streak = 1
+                    max_win_streak = 0
+                    max_loss_streak = 0
+                    current_type = wins_losses[0] if wins_losses else None
+                    
+                    for i in range(1, len(wins_losses)):
+                        if wins_losses[i] == current_type:
+                            current_streak += 1
+                        else:
+                            if current_type == 'W':
+                                max_win_streak = max(max_win_streak, current_streak)
+                            else:
+                                max_loss_streak = max(max_loss_streak, current_streak)
+                            current_streak = 1
+                            current_type = wins_losses[i]
+                    
+                    # Final update
+                    if current_type == 'W':
+                        max_win_streak = max(max_win_streak, current_streak)
+                    else:
+                        max_loss_streak = max(max_loss_streak, current_streak)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("🔥 Max Win Streak", max_win_streak)
+                    with col2:
+                        st.metric("❄️ Max Loss Streak", max_loss_streak)
+                    with col3:
+                        # Current streak
+                        current_final_streak = 1
+                        for i in range(len(wins_losses)-2, -1, -1):
+                            if wins_losses[i] == wins_losses[-1]:
+                                current_final_streak += 1
+                            else:
+                                break
+                        streak_type = "Win" if wins_losses[-1] == 'W' else "Loss"
+                        st.metric(f"Current {streak_type} Streak", current_final_streak)
+                
             else:
-                st.info("📝 No trades with P&L data")
+                st.info("📝 No trades with P&L data available for analysis")
         else:
-            st.info("📝 No closed trades available for analysis")
+            st.info("📝 No closed trades available for analytics")
     else:
-        st.info("📝 No data available for analytics")
+        st.info("📝 No data available. Start trading to see analytics!")
 
-# --- Settings Page ---
+# --- Settings Page (KEEPING SAME) ---
 elif page == "Settings":
     st.title("⚙️ Settings")
     st.markdown("### Manage your trading journal")
