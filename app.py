@@ -1604,7 +1604,7 @@ elif page == "Diary":
     # Load all diary entries
     all_entries = load_diary_entries()
     
-    with tab1:
+    with tab2:
         st.markdown("#### Select a date to view entries")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -1665,7 +1665,7 @@ elif page == "Diary":
         else:
             st.info(f"📭 No entries found for {selected_date_str}")
     
-    with tab2:
+    with tab1:
         view_option = st.selectbox(
             "Show entries from",
             ["All", "Today", "Last 7 Days", "Last 30 Days"],
