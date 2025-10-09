@@ -1599,7 +1599,7 @@ elif page == "Diary":
     st.subheader("📖 Previous Entries")
     
     # View options with tabs
-    tab1, tab2 = st.tabs(["📅 Calendar View", "📋 List View"])
+    tab1, tab2 = st.tabs(["📋 List View", "📅 Calendar View"])
     
     # Load all diary entries
     all_entries = load_diary_entries()
