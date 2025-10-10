@@ -440,9 +440,23 @@ def get_equity_curve(_df):
     if trades_with_pnl.empty:
         return pd.DataFrame()
     
+    # FIX: Safely convert entry_date to datetime with error handling
     if 'entry_date' in trades_with_pnl.columns:
-        trades_with_pnl['entry_date'] = pd.to_datetime(trades_with_pnl['entry_date'])
-        trades_with_pnl = trades_with_pnl.sort_values('entry_date')
+        try:
+            # Convert to datetime, handling various formats
+            trades_with_pnl['entry_date'] = pd.to_datetime(
+                trades_with_pnl['entry_date'], 
+                errors='coerce',
+                utc=True
+            )
+            # Remove timezone info if present
+            if trades_with_pnl['entry_date'].dt.tz is not None:
+                trades_with_pnl['entry_date'] = trades_with_pnl['entry_date'].dt.tz_localize(None)
+            # Sort by date
+            trades_with_pnl = trades_with_pnl.sort_values('entry_date')
+        except Exception as e:
+            # If conversion fails, just use the data as-is without sorting
+            pass
     
     trades_with_pnl['cumulative_pnl'] = trades_with_pnl['pnl'].cumsum()
     
