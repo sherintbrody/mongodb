@@ -862,15 +862,15 @@ elif page == "New Trade":
         col1, col2, col3 = st.columns(3)
         with col1:
             quantity = st.number_input("Quantity*", min_value=0.001, step=0.01, value=1.0)
-            entry_price = st.number_input("Entry Price*", min_value=0.0001, step=0.01)
+            entry_price = st.number_input("Entry Price*", min_value=0.0, step=0.01, format="%.4f", placeholder="0.00")
         
         with col2:
-            exit_price = st.number_input("Exit Price (if closed)", min_value=0.0, step=0.01)
+            exit_price = st.number_input("Exit Price (if closed)", min_value=0.0, step=0.01, format="%.4f", placeholder="0.00")
             outcome = st.selectbox("Outcome*", ["PENDING", "WIN", "LOSS", "BE", "TSL"])
         
         with col3:
-            entry_fee = st.number_input("Entry Fee ($)", min_value=0.0, step=0.01)
-            exit_fee = st.number_input("Exit Fee ($)", min_value=0.0, step=0.01)
+            entry_fee = st.number_input("Entry Fee ($)", min_value=0.0, step=0.01, format="%.2f", placeholder="0.00")
+            exit_fee = st.number_input("Exit Fee ($)", min_value=0.0, step=0.01, format="%.2f", placeholder="0.00")
         
         st.divider()
         
@@ -878,16 +878,16 @@ elif page == "New Trade":
         
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            stop_loss = st.number_input("Stop Loss", min_value=0.0, step=0.01)
+            stop_loss = st.number_input("Stop Loss", min_value=0.0, step=0.01, format="%.4f", placeholder="0.00")
         with col2:
-            take_profit = st.number_input("Take Profit", min_value=0.0, step=0.01)
+            take_profit = st.number_input("Take Profit", min_value=0.0, step=0.01, format="%.4f", placeholder="0.00")
         with col3:
-            risk_amount = st.number_input("Risk Amount ($)", min_value=0.0, step=1.0)
+            risk_amount = st.number_input("Risk Amount ($)", min_value=0.0, step=1.0, format="%.2f", placeholder="0.00")
         with col4:
-            risk_reward_ratio = st.number_input("R:R Ratio", min_value=0.0, step=0.1)
+            risk_reward_ratio = st.number_input("R:R Ratio", min_value=0.0, step=0.1, format="%.1f", placeholder="0.0")
         with col5:
             # P/L as a column in risk management
-            pnl = st.number_input("P&L ($)*", step=0.01, format="%.2f", help="Enter your profit or loss")
+            pnl = st.number_input("P&L ($)*", step=0.01, format="%.2f", placeholder="0.00", help="Enter your profit or loss")
         
         st.divider()
         
@@ -918,12 +918,31 @@ elif page == "New Trade":
         
         st.divider()
         
+        # 📸 Screenshot Upload Section
+        st.markdown("#### 📸 Trade Screenshots")
+        uploaded_files = st.file_uploader(
+            "Upload Chart Screenshots (Optional)",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+            help="Upload trade setup, entry, or exit screenshots"
+        )
+        
+        # Preview uploaded images
+        if uploaded_files:
+            st.markdown("**Preview:**")
+            cols = st.columns(min(len(uploaded_files), 3))
+            for idx, uploaded_file in enumerate(uploaded_files):
+                with cols[idx % 3]:
+                    st.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
+        
+        st.divider()
+        
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
             submitted = st.form_submit_button("💾 Save Trade", use_container_width=True, type="primary")
         
         if submitted:
-            if symbol and quantity and entry_price:
+            if symbol and quantity:
                 # Prepare exit_date
                 exit_date_iso = None
                 if exit_date_input and status == "CLOSED":
@@ -931,37 +950,53 @@ elif page == "New Trade":
                 elif status == "CLOSED":
                     exit_date_iso = datetime.now().isoformat()
                 
+                # Process screenshots
+                screenshots = []
+                if uploaded_files:
+                    import base64
+                    for uploaded_file in uploaded_files:
+                        # Read file and convert to base64
+                        bytes_data = uploaded_file.read()
+                        base64_image = base64.b64encode(bytes_data).decode('utf-8')
+                        screenshots.append({
+                            "filename": uploaded_file.name,
+                            "data": base64_image,
+                            "type": uploaded_file.type
+                        })
+                
                 trade_data = {
                     "symbol": symbol.upper(),
                     "side": side,
                     "trade_type": trade_type,
                     "quantity": float(quantity),
-                    "entry_price": float(entry_price),
-                    "exit_price": float(exit_price) if exit_price > 0 else None,
+                    "entry_price": float(entry_price) if entry_price else None,
+                    "exit_price": float(exit_price) if exit_price else None,
                     "entry_date": datetime.combine(entry_date, entry_time).isoformat(),
                     "exit_date": exit_date_iso,
                     "status": status,
                     "outcome": outcome,
-                    "pnl": float(pnl) if pnl != 0 else None,
-                    "stop_loss": float(stop_loss) if stop_loss > 0 else None,
-                    "take_profit": float(take_profit) if take_profit > 0 else None,
-                    "risk_amount": float(risk_amount) if risk_amount > 0 else None,
-                    "risk_reward_ratio": float(risk_reward_ratio) if risk_reward_ratio > 0 else None,
+                    "pnl": float(pnl) if pnl else None,
+                    "stop_loss": float(stop_loss) if stop_loss else None,
+                    "take_profit": float(take_profit) if take_profit else None,
+                    "risk_amount": float(risk_amount) if risk_amount else None,
+                    "risk_reward_ratio": float(risk_reward_ratio) if risk_reward_ratio else None,
                     "strategy": strategy,
                     "timeframe": timeframe,
-                    "entry_fee": float(entry_fee),
-                    "exit_fee": float(exit_fee),
-                    "total_fees": float(entry_fee + exit_fee),
+                    "entry_fee": float(entry_fee) if entry_fee else 0.0,
+                    "exit_fee": float(exit_fee) if exit_fee else 0.0,
+                    "total_fees": float(entry_fee if entry_fee else 0.0) + float(exit_fee if exit_fee else 0.0),
                     "notes": notes,
                     "tags": tags,
                     "confidence_level": int(confidence_level),
                     "emotion": emotion,
+                    "screenshots": screenshots,  # Store screenshots
                     "created_at": datetime.now().isoformat()
                 }
                 
                 result = collection.insert_one(trade_data)
                 if result.inserted_id:
-                    st.success("✅ Trade saved successfully!")
+                    screenshot_msg = f" ({len(screenshots)} screenshot(s) uploaded)" if screenshots else ""
+                    st.success(f"✅ Trade saved successfully!{screenshot_msg}")
                     st.balloons()
                     # Clear cache and force refresh
                     st.cache_data.clear()
@@ -971,7 +1006,6 @@ elif page == "New Trade":
                     st.error("❌ Failed to save trade")
             else:
                 st.error("❌ Please fill in all required fields marked with *")
-
 # --- Open Positions Page ---
 elif page == "Open Positions":
     st.title("📈 Open Positions")
@@ -1260,8 +1294,8 @@ elif page == "Trade History":
         
         st.divider()
         
-        # Individual delete section
-        st.markdown("### 🗑️ Delete Individual Trade")
+        # 📸 Screenshot Viewer Section
+        st.markdown("### 📸 View Trade Screenshots")
         
         col1, col2 = st.columns([3, 1])
         
@@ -1275,13 +1309,63 @@ elif page == "Trade History":
                 pnl = row.get('pnl', 0)
                 pnl_str = f"${pnl:.2f}" if pd.notna(pnl) else "N/A"
                 
-                trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str}")
+                # Check if trade has screenshots
+                has_screenshots = "📸" if row.get('screenshots') else ""
+                
+                trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str} {has_screenshots}")
             
+            if trade_options:
+                selected_view_idx = st.selectbox(
+                    "Select trade to view screenshots",
+                    range(len(trade_options)),
+                    format_func=lambda x: trade_options[x],
+                    key="screenshot_viewer"
+                )
+            else:
+                selected_view_idx = None
+        
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if selected_view_idx is not None:
+                screenshot_count = len(df.iloc[selected_view_idx].get('screenshots', []))
+                st.info(f"📸 {screenshot_count} screenshot(s)")
+        
+        # Display screenshots for selected trade
+        if selected_view_idx is not None:
+            selected_trade = df.iloc[selected_view_idx]
+            screenshots = selected_trade.get('screenshots', [])
+            
+            if screenshots:
+                st.markdown("---")
+                st.markdown(f"**Trade: {selected_trade.get('symbol', 'N/A')} - {format_date_display(selected_trade.get('entry_date', 'N/A'))}**")
+                
+                # Display screenshots in a grid
+                cols = st.columns(min(len(screenshots), 3))
+                for idx, screenshot in enumerate(screenshots):
+                    with cols[idx % 3]:
+                        try:
+                            import base64
+                            image_data = base64.b64decode(screenshot["data"])
+                            st.image(image_data, caption=screenshot.get("filename", f"Screenshot {idx+1}"), use_container_width=True)
+                        except Exception as e:
+                            st.error(f"❌ Failed to load image: {screenshot.get('filename', 'Unknown')}")
+            else:
+                st.info("📭 This trade has no screenshots")
+        
+        st.divider()
+        
+        # Individual delete section
+        st.markdown("### 🗑️ Delete Individual Trade")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
             if trade_options:
                 selected_trade_idx = st.selectbox(
                     "Select trade to delete",
                     range(len(trade_options)),
-                    format_func=lambda x: trade_options[x]
+                    format_func=lambda x: trade_options[x],
+                    key="trade_delete_selector"
                 )
             else:
                 selected_trade_idx = None
