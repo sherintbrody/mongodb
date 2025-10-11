@@ -1167,21 +1167,34 @@ elif page == "Trade History":
             # Update df_ids after sorting
             df_ids = df['_id'].tolist()
         
-        # Fixed display columns
+        # Fixed display columns - added Screenshots column after timeframe
         display_cols = ['entry_date', 'exit_date', 'symbol', 'side', 'outcome', 'quantity', 
-                       'entry_price', 'exit_price', 'pnl', 'status', 'strategy', 'timeframe']
+                       'entry_price', 'exit_price', 'pnl', 'status', 'strategy', 'timeframe', 'screenshots_count']
         
-        # Filter to only include columns that exist
-        display_cols = [col for col in display_cols if col in df.columns]
+        # Filter to only include columns that exist (except screenshots_count which we'll create)
+        display_cols_existing = [col for col in display_cols if col in df.columns or col == 'screenshots_count']
         
         # Create editable dataframe
-        edit_df = df[display_cols].copy()
+        edit_df = df[[col for col in display_cols if col in df.columns]].copy()
+        
+        # Add screenshot count column
+        def get_screenshot_count(row):
+            if 'screenshots' in row.index and pd.notna(row['screenshots']) and isinstance(row['screenshots'], list):
+                count = len(row['screenshots'])
+                return f"📸 {count}" if count > 0 else "-"
+            return "-"
+        
+        edit_df['screenshots_count'] = df.apply(get_screenshot_count, axis=1)
         
         # Store original index mapping
         edit_df['original_index'] = df.reset_index(drop=True).index
         
         # Format for display
         for col in display_cols:
+            if col == 'screenshots_count':
+                continue  # Already formatted
+            if col not in edit_df.columns:
+                continue
             if col in ['entry_date', 'exit_date']:
                 edit_df[col] = edit_df[col].apply(format_date_display)
             elif edit_df[col].dtype == 'object':
@@ -1192,7 +1205,18 @@ elif page == "Trade History":
         # Column configuration
         column_config = {}
         
-        for col in display_cols:
+        for col in display_cols_existing:
+            if col == 'screenshots_count':
+                column_config[col] = st.column_config.TextColumn(
+                    "Screenshots",
+                    help="Number of screenshots attached",
+                    width="small"
+                )
+                continue
+            
+            if col not in edit_df.columns:
+                continue
+                
             capitalized = capitalize_headers(col)
             
             if col in ['entry_date', 'exit_date']:
@@ -1229,7 +1253,8 @@ elif page == "Trade History":
             hide_index=True,
             num_rows="fixed",
             height=min(450, 50 + len(edit_df) * 35),  # Dynamic height based on rows
-            key=editor_key
+            key=editor_key,
+            disabled=['screenshots_count']  # Make screenshots column read-only
         )
         
         # Save changes button
@@ -1248,6 +1273,12 @@ elif page == "Trade History":
                         update_data = {}
                         
                         for col in display_cols:
+                            if col in ['screenshots_count', 'original_index']:
+                                continue  # Skip these columns
+                            
+                            if col not in row_data.index:
+                                continue
+                                
                             new_value = row_data[col]
                             
                             # Skip if no change or empty
@@ -1294,7 +1325,7 @@ elif page == "Trade History":
         
         st.divider()
         
-        # 📸 Screenshot Viewer Section
+        # 📸 Screenshot Viewer Section (Below the table)
         st.markdown("### 📸 View Trade Screenshots")
         
         col1, col2 = st.columns([3, 1])
@@ -1302,7 +1333,8 @@ elif page == "Trade History":
         with col1:
             # Create readable options for trade selection
             trade_options = []
-            for idx, (_, row) in enumerate(df.iterrows()):
+            for idx in range(len(df)):
+                row = df.iloc[idx]
                 entry_date = format_date_display(row.get('entry_date', 'N/A'))
                 symbol = row.get('symbol', 'N/A')
                 side = row.get('side', 'N/A')
@@ -1310,7 +1342,9 @@ elif page == "Trade History":
                 pnl_str = f"${pnl:.2f}" if pd.notna(pnl) else "N/A"
                 
                 # Check if trade has screenshots
-                has_screenshots = "📸" if row.get('screenshots') else ""
+                screenshots = row['screenshots'] if 'screenshots' in row.index and pd.notna(row['screenshots']) else []
+                screenshot_count = len(screenshots) if isinstance(screenshots, list) else 0
+                has_screenshots = f"📸 {screenshot_count}" if screenshot_count > 0 else ""
                 
                 trade_options.append(f"{entry_date} | {symbol} | {side} | P&L: {pnl_str} {has_screenshots}")
             
@@ -1327,17 +1361,31 @@ elif page == "Trade History":
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
             if selected_view_idx is not None:
-                screenshot_count = len(df.iloc[selected_view_idx].get('screenshots', []))
-                st.info(f"📸 {screenshot_count} screenshot(s)")
+                # Get the row screenshots
+                selected_row = df.iloc[selected_view_idx]
+                screenshots = selected_row['screenshots'] if 'screenshots' in selected_row.index and pd.notna(selected_row['screenshots']) else []
+                screenshot_count = len(screenshots) if isinstance(screenshots, list) else 0
+                
+                if screenshot_count > 0:
+                    st.success(f"📸 {screenshot_count} screenshot(s)")
+                else:
+                    st.info("📭 No screenshots")
         
         # Display screenshots for selected trade
         if selected_view_idx is not None:
             selected_trade = df.iloc[selected_view_idx]
-            screenshots = selected_trade.get('screenshots', [])
             
-            if screenshots:
+            # Safely get screenshots
+            if 'screenshots' in selected_trade.index and pd.notna(selected_trade['screenshots']):
+                screenshots = selected_trade['screenshots']
+            else:
+                screenshots = []
+            
+            if screenshots and isinstance(screenshots, list) and len(screenshots) > 0:
                 st.markdown("---")
-                st.markdown(f"**Trade: {selected_trade.get('symbol', 'N/A')} - {format_date_display(selected_trade.get('entry_date', 'N/A'))}**")
+                symbol = selected_trade['symbol'] if 'symbol' in selected_trade.index else 'N/A'
+                entry_date = selected_trade['entry_date'] if 'entry_date' in selected_trade.index else 'N/A'
+                st.markdown(f"**Trade: {symbol} - {format_date_display(entry_date)}**")
                 
                 # Display screenshots in a grid
                 cols = st.columns(min(len(screenshots), 3))
@@ -1348,9 +1396,7 @@ elif page == "Trade History":
                             image_data = base64.b64decode(screenshot["data"])
                             st.image(image_data, caption=screenshot.get("filename", f"Screenshot {idx+1}"), use_container_width=True)
                         except Exception as e:
-                            st.error(f"❌ Failed to load image: {screenshot.get('filename', 'Unknown')}")
-            else:
-                st.info("📭 This trade has no screenshots")
+                            st.error(f"❌ Failed to load: {screenshot.get('filename', 'Unknown')}")
         
         st.divider()
         
@@ -1396,6 +1442,10 @@ elif page == "Trade History":
                 export_df['entry_date'] = export_df['entry_date'].apply(format_date_display)
             if 'exit_date' in export_df.columns:
                 export_df['exit_date'] = export_df['exit_date'].apply(format_date_display)
+            
+            # Remove screenshots from export
+            if 'screenshots' in export_df.columns:
+                export_df = export_df.drop('screenshots', axis=1)
             
             csv = export_df.to_csv(index=False)
             st.download_button(
